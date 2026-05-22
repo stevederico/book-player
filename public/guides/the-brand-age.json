@@ -5,8 +5,7 @@
   "date": "March 2026",
   "duration": 2133,
   "audio": "../audio/TheBrandAge.mp3",
-  "defaultViewMode": "generated",
-
+  "defaultViewMode": "real",
   "chapters": [
     {
       "time": 0,
@@ -15,7 +14,8 @@
       "image": {
         "generated": "../images/the-brand-age/generated/timeline-eras.jpg"
       },
-      "caption": "Japanese competition + Bretton Woods collapse + quartz made mechanical timekeeping irrelevant."
+      "caption": "Japanese competition + Bretton Woods collapse + quartz made mechanical timekeeping irrelevant.",
+      "realImage": "../images/the-brand-age/real/quartz-crisis.webp"
     },
     {
       "time": 183,
@@ -24,7 +24,8 @@
       "image": {
         "generated": "../images/the-brand-age/generated/golden-vs-brand-age-watches.jpg"
       },
-      "caption": "Thinness and accuracy. The holy trinity. Form followed function."
+      "caption": "Thinness and accuracy. The holy trinity. Form followed function.",
+      "realImage": "../images/the-brand-age/real/golden-age.webp"
     },
     {
       "time": 388,
@@ -35,7 +36,7 @@
       },
       "photoLink": "https://collectability.com/learn/the-history-of-the-golden-ellipse/",
       "photoLabel": "Golden Ellipse high-res photos",
-      "realImage": "../images/the-brand-age/real/golden-ellipse.jpg",
+      "realImage": "../images/the-brand-age/real/golden-ellipse.webp",
       "caption": "First deliberate case-as-brand move. Beautiful but the crown became almost unusable."
     },
     {
@@ -45,7 +46,8 @@
       "image": {
         "generated": "../images/the-brand-age/generated/brand-vs-design.jpg"
       },
-      "caption": "The fundamental conflict once real performance differences disappear."
+      "caption": "The fundamental conflict once real performance differences disappear.",
+      "realImage": "../images/the-brand-age/real/brand-vs-design.webp"
     },
     {
       "time": 688,
@@ -56,7 +58,7 @@
       },
       "photoLink": "https://www.hodinkee.com/articles/audemars-piguet-royal-oak-a2-phillips",
       "photoLabel": "Royal Oak high-res photos",
-      "realImage": "../images/the-brand-age/real/royal-oak.jpg",
+      "realImage": "../images/the-brand-age/real/royal-oak.webp",
       "caption": "Gérald Genta’s integrated bracelet watch proved the new rules could work."
     },
     {
@@ -68,7 +70,7 @@
       },
       "photoLink": "https://collectability.com/learn/the-unlikely-icon-how-the-patek-philippe-nautilus-went-from-zero-to-hero/",
       "photoLabel": "Nautilus high-res photos",
-      "realImage": "../images/the-brand-age/real/nautilus.jpg",
+      "realImage": "../images/the-brand-age/real/nautilus.webp",
       "caption": "42 mm. Ears. Instantly recognizable from across the room."
     },
     {
@@ -80,7 +82,7 @@
       },
       "photoLink": "https://www.hodinkee.com/articles/vintage-watches-sep-29-2021",
       "photoLabel": "3919 high-res photos",
-      "realImage": "../images/the-brand-age/real/3919.jpg",
+      "realImage": "../images/the-brand-age/real/3919.webp",
       "caption": "The watch that finally turned Patek’s sales around with yuppie bankers."
     },
     {
@@ -90,7 +92,8 @@
       "image": {
         "generated": "../images/the-brand-age/generated/timeline-eras.jpg"
       },
-      "caption": "Watches as status symbols and carefully managed asset bubbles."
+      "caption": "Watches as status symbols and carefully managed asset bubbles.",
+      "realImage": "../images/the-brand-age/real/brand-age-begins.webp"
     },
     {
       "time": 1167,
@@ -99,7 +102,8 @@
       "image": {
         "generated": "../images/the-brand-age/generated/time-traveler-boutique.jpg"
       },
-      "caption": "Giant watches, conglomerates, strange shapes, and you can’t just buy the top models."
+      "caption": "Giant watches, conglomerates, strange shapes, and you can’t just buy the top models.",
+      "realImage": "../images/the-brand-age/real/time-traveler-shock.webp"
     },
     {
       "time": 1290,
@@ -108,7 +112,8 @@
       "image": {
         "generated": "../images/the-brand-age/generated/golden-vs-brand-age-watches.jpg"
       },
-      "caption": "Rolex understood branding earlier than almost anyone else."
+      "caption": "Rolex understood branding earlier than almost anyone else.",
+      "realImage": "../images/the-brand-age/real/rolex-jeeps.webp"
     },
     {
       "time": 1386,
@@ -117,7 +122,8 @@
       "image": {
         "generated": "../images/the-brand-age/generated/artificial-scarcity.jpg"
       },
-      "caption": "Waiting lists, loyalty purchases, policing the secondary market. Managing the bubble."
+      "caption": "Waiting lists, loyalty purchases, policing the secondary market. Managing the bubble.",
+      "realImage": "../images/the-brand-age/real/artificial-scarcity.webp"
     },
     {
       "time": 1531,
@@ -126,7 +132,8 @@
       "image": {
         "generated": "../images/the-brand-age/generated/brand-vs-design.jpg"
       },
-      "caption": "Companies that rebuy their own watches to protect scarcity. The strangeness of no real function."
+      "caption": "Companies that rebuy their own watches to protect scarcity. The strangeness of no real function.",
+      "realImage": "../images/the-brand-age/real/comb-over.webp"
     },
     {
       "time": 1702,
@@ -135,7 +142,8 @@
       "image": {
         "generated": "../images/the-brand-age/generated/timeline-eras.jpg"
       },
-      "caption": "The single principle that saves you from brand work and finds the real golden ages."
+      "caption": "The single principle that saves you from brand work and finds the real golden ages.",
+      "realImage": "../images/the-brand-age/real/follow-problems.webp"
     }
   ]
 }

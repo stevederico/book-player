@@ -520,6 +520,51 @@ h1 {
   color: var(--bg);
 }
 
+.view-mode-menu { position: relative; display: inline-block; }
+.gear-btn {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.gear-btn:hover { color: var(--text); }
+.view-mode-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 20;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.view-mode-item {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  text-align: left;
+  padding: 7px 12px;
+  font-family: 'Manrope', system-ui, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.view-mode-item:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+.view-mode-item.active { background: var(--text); color: var(--bg); }
+
 /* Comparison grid (unused in main flow but kept) */
 .comparison-header {
   font-size: 0.72rem;
@@ -569,16 +614,33 @@ h1 {
 .hero {
   position: relative;
   width: 100%;
+  aspect-ratio: 16 / 9;
   border-radius: 0;
-  overflow: visible;
+  overflow: hidden;
   margin: 0;
   background: #000;
 }
 
 .hero img {
   width: 100%;
+  height: 100%;
+  object-fit: contain;
   display: block;
   vertical-align: bottom;
+}
+
+.hero-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+}
+.hero-split .hero-half {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
 }
 
 .hero .overlay {
