@@ -1,0 +1,141 @@
+{
+  "slug": "the-brand-age",
+  "title": "The Brand Age",
+  "author": "Paul Graham",
+  "date": "March 2026",
+  "duration": 2133,
+  "audio": "../audio/TheBrandAge.mp3",
+  "defaultViewMode": "generated",
+
+  "chapters": [
+    {
+      "time": 0,
+      "title": "The Quartz Crisis",
+      "quote": "In the early 1970s disaster struck the Swiss watch industry.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/timeline-eras.jpg"
+      },
+      "caption": "Japanese competition + Bretton Woods collapse + quartz made mechanical timekeeping irrelevant."
+    },
+    {
+      "time": 183,
+      "title": "The Golden Age (1945–1970)",
+      "quote": "The best watches of the golden age have a quiet perfection that has never been equalled since.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/golden-vs-brand-age-watches.jpg"
+      },
+      "caption": "Thinness and accuracy. The holy trinity. Form followed function."
+    },
+    {
+      "time": 388,
+      "title": "Golden Ellipse (1968)",
+      "quote": "Patek expanded the size of the brand from 8 square millimeters to 800.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/brand-vs-design.jpg"
+      },
+      "photoLink": "https://collectability.com/learn/the-history-of-the-golden-ellipse/",
+      "photoLabel": "Golden Ellipse high-res photos",
+      "realImage": "../images/the-brand-age/real/golden-ellipse.jpg",
+      "caption": "First deliberate case-as-brand move. Beautiful but the crown became almost unusable."
+    },
+    {
+      "time": 570,
+      "title": "Branding vs. Good Design",
+      "quote": "Branding is centrifugal; design is centripetal.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/brand-vs-design.jpg"
+      },
+      "caption": "The fundamental conflict once real performance differences disappear."
+    },
+    {
+      "time": 688,
+      "title": "Royal Oak (1972)",
+      "quote": "Introducing steel at the price of gold.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/golden-vs-brand-age-watches.jpg"
+      },
+      "photoLink": "https://www.hodinkee.com/articles/audemars-piguet-royal-oak-a2-phillips",
+      "photoLabel": "Royal Oak high-res photos",
+      "realImage": "../images/the-brand-age/real/royal-oak.jpg",
+      "caption": "Gérald Genta’s integrated bracelet watch proved the new rules could work."
+    },
+    {
+      "time": 767,
+      "title": "Nautilus (1976)",
+      "quote": "In the Nautilus we really see the incompatibility of branding and design. It was huge.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/golden-vs-brand-age-watches.jpg"
+      },
+      "photoLink": "https://collectability.com/learn/the-unlikely-icon-how-the-patek-philippe-nautilus-went-from-zero-to-hero/",
+      "photoLabel": "Nautilus high-res photos",
+      "realImage": "../images/the-brand-age/real/nautilus.jpg",
+      "caption": "42 mm. Ears. Instantly recognizable from across the room."
+    },
+    {
+      "time": 840,
+      "title": "3919 Hobnail Calatrava",
+      "quote": "The ibankers bought the full mechanical story.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/time-traveler-boutique.jpg"
+      },
+      "photoLink": "https://www.hodinkee.com/articles/vintage-watches-sep-29-2021",
+      "photoLabel": "3919 high-res photos",
+      "realImage": "../images/the-brand-age/real/3919.jpg",
+      "caption": "The watch that finally turned Patek’s sales around with yuppie bankers."
+    },
+    {
+      "time": 1062,
+      "title": "The Brand Age Begins",
+      "quote": "Since 1985 we’ve been in the brand age.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/timeline-eras.jpg"
+      },
+      "caption": "Watches as status symbols and carefully managed asset bubbles."
+    },
+    {
+      "time": 1167,
+      "title": "Time Traveler’s Shock",
+      "quote": "A surprisingly large number of them looked like a specific brand of bulky watch he was already familiar with.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/time-traveler-boutique.jpg"
+      },
+      "caption": "Giant watches, conglomerates, strange shapes, and you can’t just buy the top models."
+    },
+    {
+      "time": 1290,
+      "title": "Rolex & Luxury Jeeps",
+      "quote": "Thick, tough watches made out of gold as well as steel. The result was a sort of luxury Jeep.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/golden-vs-brand-age-watches.jpg"
+      },
+      "caption": "Rolex understood branding earlier than almost anyone else."
+    },
+    {
+      "time": 1386,
+      "title": "Artificial Scarcity",
+      "quote": "You can’t just buy a Nautilus. You have to spend years proving your loyalty first.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/artificial-scarcity.jpg"
+      },
+      "caption": "Waiting lists, loyalty purchases, policing the secondary market. Managing the bubble."
+    },
+    {
+      "time": 1531,
+      "title": "The Comb-Over Effect",
+      "quote": "A series of individually small changes takes you from something that’s a little bit off to something that’s freakishly wrong.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/brand-vs-design.jpg"
+      },
+      "caption": "Companies that rebuy their own watches to protect scarcity. The strangeness of no real function."
+    },
+    {
+      "time": 1702,
+      "title": "Follow the Problems",
+      "quote": "The way to find golden ages is not to go looking for them. It is by following interesting problems.",
+      "image": {
+        "generated": "../images/the-brand-age/generated/timeline-eras.jpg"
+      },
+      "caption": "The single principle that saves you from brand work and finds the real golden ages."
+    }
+  ]
+}
