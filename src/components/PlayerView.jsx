@@ -1,5 +1,145 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
+
+function normalizeToken(s) {
+  return s.toLowerCase().replace(/[^\w']/g, '');
+}
+
+function alignTimings(transcriptParas, timingWords) {
+  if (!transcriptParas || !timingWords?.length) return null;
+  const flat = transcriptParas.flatMap(p => p.words);
+  const times = new Array(flat.length).fill(null);
+  let ti = 0;
+  for (let i = 0; i < flat.length && ti < timingWords.length; i++) {
+    const tw = normalizeToken(flat[i].text);
+    if (!tw) continue;
+    for (let k = 0; k < 5 && ti + k < timingWords.length; k++) {
+      if (normalizeToken(timingWords[ti + k].w) === tw) {
+        times[i] = timingWords[ti + k].t;
+        ti += k + 1;
+        break;
+      }
+    }
+  }
+  let last = 0;
+  for (let i = 0; i < times.length; i++) {
+    if (times[i] == null) times[i] = last;
+    else last = times[i];
+  }
+  return times;
+}
+
+function wordIndexFromTimes(wordStartTimes, t) {
+  if (!wordStartTimes?.length) return -1;
+  let lo = 0, hi = wordStartTimes.length - 1, ans = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (wordStartTimes[mid] <= t) { ans = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return ans;
+}
+
+function findQuoteStartWord(flatWords, quote, hintIdx = 0) {
+  const q = (quote || '')
+    .toLowerCase()
+    .replace(/[^\w\s']/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 6);
+  if (q.length < 2) return -1;
+  for (let i = hintIdx; i <= flatWords.length - q.length; i++) {
+    let match = true;
+    for (let j = 0; j < q.length; j++) {
+      if (normalizeToken(flatWords[i + j]) !== q[j]) { match = false; break; }
+    }
+    if (match) return i;
+  }
+  return -1;
+}
+
+function buildAnchors(transcriptParas, chapters, duration) {
+  if (!transcriptParas || !chapters?.length || !duration) return null;
+  const flat = transcriptParas.flatMap(p => p.words.map(w => w.text));
+  const total = flat.length;
+
+  const found = [];
+  let hint = 0;
+  chapters.forEach(ch => {
+    if (ch.time == null) return;
+    const wIdx = findQuoteStartWord(flat, ch.quote, hint);
+    if (wIdx < 0) return;
+    found.push({ word: wIdx, time: ch.time });
+    hint = wIdx + 1;
+  });
+
+  let pace = 0;
+  if (found.length >= 2) {
+    const paces = [];
+    for (let i = 1; i < found.length; i++) {
+      const dw = found[i].word - found[i - 1].word;
+      const dt = found[i].time - found[i - 1].time;
+      if (dw > 0 && dt > 0) paces.push(dw / dt);
+    }
+    if (paces.length) {
+      paces.sort((a, b) => a - b);
+      pace = paces[Math.floor(paces.length / 2)];
+    }
+  }
+
+  if (found.length && found[0].word > 0 && found[0].time === 0 && pace > 0) {
+    found[0] = { word: found[0].word, time: found[0].word / pace };
+  }
+
+  const anchors = [...found].sort((a, b) => a.time - b.time);
+  if (!anchors.length || anchors[0].time > 0 || anchors[0].word > 0) {
+    anchors.unshift({ word: 0, time: 0 });
+  }
+  if (anchors.length && anchors[anchors.length - 1].word < total) {
+    anchors.push({ word: total, time: duration });
+  }
+  return anchors;
+}
+
+function wordIndexAtTime(anchors, t) {
+  if (!anchors || anchors.length < 2) return 0;
+  let i = 0;
+  while (i < anchors.length - 1 && anchors[i + 1].time <= t) i++;
+  const a = anchors[i];
+  const b = anchors[i + 1] || a;
+  if (!b || b.time <= a.time) return a.word;
+  const frac = (t - a.time) / (b.time - a.time);
+  return Math.round(a.word + frac * (b.word - a.word));
+}
+
+function timeAtWordIndex(anchors, wIdx) {
+  if (!anchors || anchors.length < 2) return 0;
+  let i = 0;
+  while (i < anchors.length - 1 && anchors[i + 1].word <= wIdx) i++;
+  const a = anchors[i];
+  const b = anchors[i + 1] || a;
+  if (!b || b.word <= a.word) return a.time;
+  const frac = (wIdx - a.word) / (b.word - a.word);
+  return a.time + frac * (b.time - a.time);
+}
+
+function parseTranscript(text) {
+  const lines = text.split(/\r?\n/);
+  let start = 0;
+  if (lines[0]?.startsWith('#')) {
+    start = lines.findIndex((l, i) => i > 0 && l.trim() === '');
+    start = start === -1 ? 0 : start + 1;
+  }
+  while (start < lines.length && /^Source:/i.test(lines[start])) start++;
+  while (start < lines.length && lines[start].trim() === '') start++;
+  const body = lines.slice(start).join('\n');
+  const paras = body.split(/\n\s*\n+/).map(p => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  let wordCounter = 0;
+  return paras.map(p => {
+    const words = p.split(' ').map(w => ({ text: w, index: wordCounter++ }));
+    return { words };
+  });
+}
 
 function fmt(sec) {
   if (!sec || isNaN(sec)) return '00:00';
@@ -33,8 +173,15 @@ export default function PlayerView() {
   const [rate, setRate] = useState(1);
   const [menuOpen, setMenuOpen] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [panel, setPanel] = useState('transcript');
+  const [transcriptParas, setTranscriptParas] = useState(null);
+  const [timingWords, setTimingWords] = useState(null);
+  const [transcriptError, setTranscriptError] = useState(false);
   const menuRef = useRef(null);
   const feedbackTimerRef = useRef(null);
+  const transcriptScrollRef = useRef(null);
+  const activeWordRef = useRef(null);
+  const userScrollUntilRef = useRef(0);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -63,6 +210,40 @@ export default function PlayerView() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [slug]);
+
+  useEffect(() => {
+    if (!guide?.transcript) { setTranscriptParas(null); setTranscriptError(false); return; }
+    let cancelled = false;
+    setTranscriptError(false);
+    fetch(guide.transcript)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then(txt => {
+        if (cancelled) return;
+        setTranscriptParas(parseTranscript(txt));
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.error('Failed to load transcript:', err);
+        setTranscriptError(true);
+      });
+    return () => { cancelled = true; };
+  }, [guide?.transcript]);
+
+  useEffect(() => {
+    if (!guide?.timing) { setTimingWords(null); return; }
+    let cancelled = false;
+    fetch(guide.timing)
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        setTimingWords(Array.isArray(d) ? d : d.words || []);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [guide?.timing]);
 
   useEffect(() => {
     function onKey(e) {
@@ -112,6 +293,69 @@ export default function PlayerView() {
     togglePlay();
   }
 
+  const totalWords = useMemo(
+    () => (transcriptParas ? transcriptParas.reduce((n, p) => n + p.words.length, 0) : 0),
+    [transcriptParas]
+  );
+
+  const anchors = useMemo(
+    () => buildAnchors(transcriptParas, guide?.chapters, duration),
+    [transcriptParas, guide?.chapters, duration]
+  );
+
+  const wordStartTimes = useMemo(
+    () => alignTimings(transcriptParas, timingWords),
+    [transcriptParas, timingWords]
+  );
+
+  const activeWord = useMemo(() => {
+    if (!totalWords) return -1;
+    const offset = guide?.timingOffset || 0;
+    const w = wordStartTimes
+      ? wordIndexFromTimes(wordStartTimes, current - offset)
+      : wordIndexAtTime(anchors, current);
+    return Math.max(0, Math.min(totalWords - 1, w));
+  }, [current, anchors, wordStartTimes, totalWords, guide?.timingOffset]);
+
+  useEffect(() => {
+    const scroller = transcriptScrollRef.current;
+    if (!scroller) return;
+    function pauseAutoScroll() { userScrollUntilRef.current = Date.now() + 5000; }
+    scroller.addEventListener('wheel', pauseAutoScroll, { passive: true });
+    scroller.addEventListener('touchmove', pauseAutoScroll, { passive: true });
+    return () => {
+      scroller.removeEventListener('wheel', pauseAutoScroll);
+      scroller.removeEventListener('touchmove', pauseAutoScroll);
+    };
+  }, [panel]);
+
+  useEffect(() => {
+    if (panel !== 'transcript' || !playing) return;
+    if (Date.now() < userScrollUntilRef.current) return;
+    const el = activeWordRef.current;
+    const scroller = transcriptScrollRef.current;
+    if (!el || !scroller) return;
+    const elRect = el.getBoundingClientRect();
+    const sRect = scroller.getBoundingClientRect();
+    const relTop = elRect.top - sRect.top;
+    const h = sRect.height;
+    if (relTop > h * 0.75 || elRect.bottom < sRect.top) {
+      const target = scroller.scrollTop + relTop - h * 0.2;
+      scroller.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+    }
+  }, [activeWord, panel, playing]);
+
+  function seekToWord(wIdx) {
+    const a = audioRef.current;
+    if (!a || !totalWords || !duration) return;
+    let t;
+    if (wordStartTimes && wordStartTimes[wIdx] != null) t = wordStartTimes[wIdx];
+    else if (anchors) t = timeAtWordIndex(anchors, wIdx);
+    else t = (wIdx / totalWords) * duration;
+    a.currentTime = t;
+    a.play().catch(() => {});
+  }
+
   const jumpToChapter = useCallback((ch, idx) => {
     const a = audioRef.current;
     if (!a) return;
@@ -141,13 +385,6 @@ export default function PlayerView() {
 
   return (
     <>
-      <nav className="player-nav">
-        <h1 className="nav-title">{guide.title || ''}</h1>
-        <div className="nav-meta">
-          {[guide.author, guide.date || guide.publishedAt].filter(Boolean).join(' • ')}
-        </div>
-      </nav>
-
       <div className="player-container">
         <div className="player-main">
           <div className={`hero${playing ? '' : ' paused'}${isBoth ? ' split' : ''}`} ref={heroRef} onClick={handleHeroClick}>
@@ -274,8 +511,38 @@ export default function PlayerView() {
       </div>
 
 <div className="chapters-section">
+        <div className="player-heading">
+          <h1 className="player-heading-title">{guide.title || ''}</h1>
+          <div className="player-heading-meta">
+            <div className="author-avatar" aria-hidden="true">
+              {(guide.author || '?').trim().charAt(0).toUpperCase()}
+            </div>
+            <span className="player-heading-byline">
+              {[guide.author, guide.date || guide.publishedAt].filter(Boolean).join(' • ')}
+            </span>
+          </div>
+        </div>
         <div className="chapters-header">
-          <span><span id="chapter-count">{chapters.length}</span> Chapters</span>
+          <div className="panel-toggle" role="tablist" aria-label="Panel">
+            <button
+              role="tab"
+              aria-selected={panel === 'chapters'}
+              className={`panel-tab${panel === 'chapters' ? ' active' : ''}`}
+              onClick={() => setPanel('chapters')}
+            >
+              Chapters
+            </button>
+            {guide.transcript && (
+              <button
+                role="tab"
+                aria-selected={panel === 'transcript'}
+                className={`panel-tab${panel === 'transcript' ? ' active' : ''}`}
+                onClick={() => setPanel('transcript')}
+              >
+                Transcript
+              </button>
+            )}
+          </div>
           <div className="view-mode-menu" ref={menuRef}>
             <button
               className="gear-btn"
@@ -307,23 +574,49 @@ export default function PlayerView() {
             )}
           </div>
         </div>
-        <div className="chapters">
-          {chapters.map((c, i) => (
-            <div
-              key={i}
-              className={`chapter${i === activeIdx ? ' active' : ''}`}
-              onClick={() => jumpToChapter(c, i)}
-            >
-              <div className="time">{fmt(c.time)}</div>
-              <div className="label">{c.title}</div>
-            </div>
-          ))}
-        </div>
+        {panel === 'chapters' ? (
+          <div className="chapters">
+            {chapters.map((c, i) => (
+              <div
+                key={i}
+                className={`chapter${i === activeIdx ? ' active' : ''}`}
+                onClick={() => jumpToChapter(c, i)}
+              >
+                <div className="time">{fmt(c.time)}</div>
+                <div className="label">{c.title}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="transcript" ref={transcriptScrollRef}>
+            {transcriptError ? (
+              <div className="transcript-empty">Transcript unavailable.</div>
+            ) : !transcriptParas ? (
+              <div className="transcript-empty">Loading transcript…</div>
+            ) : (
+              transcriptParas.map((p, pi) => (
+                <p key={pi} className="transcript-para">
+                  {p.words.map((w, wi) => {
+                    const isActive = w.index === activeWord;
+                    const isPast = w.index < activeWord;
+                    return (
+                      <span
+                        key={wi}
+                        ref={isActive ? activeWordRef : null}
+                        className={`tw${isActive ? ' active' : ''}${isPast ? ' past' : ''}`}
+                        onClick={() => seekToWord(w.index)}
+                      >
+                        {w.text}{wi < p.words.length - 1 ? ' ' : ''}
+                      </span>
+                    );
+                  })}
+                </p>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="note">
-        Use the <strong>Generated / Real / Both</strong> toggle to switch between illustrations and historical photos.
-      </div>
     </>
   );
 }

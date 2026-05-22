@@ -3,8 +3,11 @@
   "title": "The Brand Age",
   "author": "Paul Graham",
   "date": "March 2026",
-  "duration": 2133,
+  "duration": 2942,
   "audio": "/audio/TheBrandAge.mp3",
+  "transcript": "/essays/brandage.txt",
+  "timing": "/audio/the-brand-age.words.json",
+  "timingOffset": 0.15,
   "defaultViewMode": "real",
   "chapters": [
     {
