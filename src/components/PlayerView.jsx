@@ -123,6 +123,44 @@ function timeAtWordIndex(anchors, wIdx) {
   return a.time + frac * (b.time - a.time);
 }
 
+function buildCaptionChunks(transcriptParas) {
+  if (!transcriptParas) return null;
+  const flat = transcriptParas.flatMap(p => p.words);
+  const chunks = [];
+  const MAX = 12;
+  const SOFT = 7;
+  let buf = [];
+  const flush = () => {
+    if (!buf.length) return;
+    chunks.push({
+      start: buf[0].index,
+      end: buf[buf.length - 1].index,
+      text: buf.map(w => w.text).join(' ')
+    });
+    buf = [];
+  };
+  for (const w of flat) {
+    buf.push(w);
+    const last = w.text[w.text.length - 1];
+    const hardBreak = /[.!?]/.test(last);
+    const softBreak = /[,;:]/.test(last);
+    if (hardBreak || buf.length >= MAX || (softBreak && buf.length >= SOFT)) flush();
+  }
+  flush();
+  return chunks;
+}
+
+function chunkIndexAtWord(chunks, wIdx) {
+  if (!chunks?.length) return -1;
+  let lo = 0, hi = chunks.length - 1, ans = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (chunks[mid].start <= wIdx) { ans = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return ans;
+}
+
 function parseTranscript(text) {
   const lines = text.split(/\r?\n/);
   let start = 0;
@@ -174,6 +212,9 @@ export default function PlayerView() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [panel, setPanel] = useState('transcript');
+  const [captionsOn, setCaptionsOn] = useState(() => {
+    try { return localStorage.getItem('pg.cc') !== '0'; } catch { return true; }
+  });
   const [transcriptParas, setTranscriptParas] = useState(null);
   const [timingWords, setTimingWords] = useState(null);
   const [transcriptError, setTranscriptError] = useState(false);
@@ -246,6 +287,24 @@ export default function PlayerView() {
   }, [guide?.timing]);
 
   useEffect(() => {
+    if (!playing) return;
+    const chs = guide?.chapters || [];
+    let raf;
+    const tick = () => {
+      const a = audioRef.current;
+      if (a) {
+        const t = a.currentTime || 0;
+        setCurrent(t);
+        const i = findChapterIndex(chs, t);
+        setActiveIdx(prev => (prev === i ? prev : i));
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, guide]);
+
+  useEffect(() => {
     function onKey(e) {
       const a = audioRef.current;
       if (!a) return;
@@ -259,6 +318,8 @@ export default function PlayerView() {
         a.currentTime = Math.min(a.duration || 9999, a.currentTime + 10);
       } else if (e.key.toLowerCase() === 'f') {
         toggleFs();
+      } else if (e.key.toLowerCase() === 'c') {
+        toggleCaptions();
       }
     }
     document.addEventListener('keydown', onKey);
@@ -308,6 +369,11 @@ export default function PlayerView() {
     [transcriptParas, timingWords]
   );
 
+  const captionChunks = useMemo(
+    () => buildCaptionChunks(transcriptParas),
+    [transcriptParas]
+  );
+
   const activeWord = useMemo(() => {
     if (!totalWords) return -1;
     const offset = guide?.timingOffset || 0;
@@ -316,6 +382,20 @@ export default function PlayerView() {
       : wordIndexAtTime(anchors, current);
     return Math.max(0, Math.min(totalWords - 1, w));
   }, [current, anchors, wordStartTimes, totalWords, guide?.timingOffset]);
+
+  const activeCaption = useMemo(() => {
+    if (!captionsOn || !captionChunks?.length || activeWord < 0) return null;
+    const i = chunkIndexAtWord(captionChunks, activeWord);
+    return captionChunks[i] || null;
+  }, [captionsOn, captionChunks, activeWord]);
+
+  function toggleCaptions() {
+    setCaptionsOn(v => {
+      const next = !v;
+      try { localStorage.setItem('pg.cc', next ? '1' : '0'); } catch {}
+      return next;
+    });
+  }
 
   useEffect(() => {
     const scroller = transcriptScrollRef.current;
@@ -473,10 +553,57 @@ export default function PlayerView() {
                       onInput={e => { if (audioRef.current) audioRef.current.volume = parseFloat(e.target.value); }}
                     />
                   </div>
+                  <div className="view-mode-menu" ref={menuRef}>
+                    <button
+                      className="gear-btn"
+                      title="View settings"
+                      aria-label="View settings"
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen}
+                      onClick={() => setMenuOpen(o => !o)}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                      </svg>
+                    </button>
+                    {menuOpen && (
+                      <div className="view-mode-dropdown" role="menu">
+                        {['generated', 'real', 'both'].map(m => (
+                          <button
+                            key={m}
+                            role="menuitemradio"
+                            aria-checked={mode === m}
+                            className={`view-mode-item${mode === m ? ' active' : ''}`}
+                            onClick={() => { setMode(m); setMenuOpen(false); }}
+                          >
+                            {m[0].toUpperCase() + m.slice(1)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className={`cc-btn${captionsOn ? ' active' : ''}`}
+                    title={captionsOn ? 'Captions on (c)' : 'Captions off (c)'}
+                    aria-label={captionsOn ? 'Turn captions off' : 'Turn captions on'}
+                    aria-pressed={captionsOn}
+                    onClick={toggleCaptions}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path d="M19 4H5a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3zM11 11.5H9.5v-.5h-2v2h2v-.5H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v2h2v-.5H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z" />
+                    </svg>
+                  </button>
                   <button className="fs-btn" title="Fullscreen (f)" onClick={toggleFs}>⛶</button>
                 </div>
               </div>
             </div>
+
+            {activeCaption && (
+              <div className="cc-box" aria-live="polite">
+                <span className="cc-text">{activeCaption.text}</span>
+              </div>
+            )}
 
             {feedback && (
               <div className="play-feedback" key={feedback.id} aria-hidden="true">
@@ -541,36 +668,6 @@ export default function PlayerView() {
               >
                 Transcript
               </button>
-            )}
-          </div>
-          <div className="view-mode-menu" ref={menuRef}>
-            <button
-              className="gear-btn"
-              title="View settings"
-              aria-label="View settings"
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen(o => !o)}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </button>
-            {menuOpen && (
-              <div className="view-mode-dropdown" role="menu">
-                {['generated', 'real', 'both'].map(m => (
-                  <button
-                    key={m}
-                    role="menuitemradio"
-                    aria-checked={mode === m}
-                    className={`view-mode-item${mode === m ? ' active' : ''}`}
-                    onClick={() => { setMode(m); setMenuOpen(false); }}
-                  >
-                    {m[0].toUpperCase() + m.slice(1)}
-                  </button>
-                ))}
-              </div>
             )}
           </div>
         </div>

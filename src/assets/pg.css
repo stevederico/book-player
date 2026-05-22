@@ -582,6 +582,28 @@ h1 {
 .view-mode-item:hover { color: var(--text); background: rgba(255,255,255,0.04); }
 .view-mode-item.active { background: var(--text); color: var(--bg); }
 
+.yt-bar .view-mode-menu { display: inline-flex; align-items: center; }
+.yt-bar .gear-btn {
+  background: transparent;
+  border: none;
+  color: #fff;
+  width: 28px;
+  height: 28px;
+  opacity: .85;
+  transition: opacity .12s, color .12s, transform .12s;
+}
+.yt-bar .gear-btn:hover { opacity: 1; color: var(--accent-hot); transform: scale(1.05); }
+.yt-bar .view-mode-dropdown {
+  top: auto;
+  bottom: calc(100% + 8px);
+  background: rgba(20, 20, 20, 0.95);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 -8px 24px rgba(0,0,0,0.5);
+}
+.yt-bar .view-mode-item { color: rgba(255,255,255,0.75); }
+.yt-bar .view-mode-item:hover { color: #fff; background: rgba(255,255,255,0.08); }
+.yt-bar .view-mode-item.active { background: #fff; color: #000; }
+
 /* Comparison grid (unused in main flow but kept) */
 .comparison-header {
   font-size: 0.72rem;
@@ -871,6 +893,56 @@ h1 {
   transition: opacity .12s, color .12s, transform .12s;
 }
 .fs-btn:hover { opacity: 1; color: var(--accent-hot); transform: scale(1.1); }
+
+.cc-btn {
+  background: transparent;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  padding: 2px 6px;
+  opacity: .85;
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  transition: opacity .12s, color .12s, transform .12s;
+}
+.cc-btn:hover { opacity: 1; color: var(--accent-hot); transform: scale(1.05); }
+.cc-btn.active { color: var(--accent-hot); opacity: 1; }
+.cc-btn.active::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: -2px;
+  height: 2px;
+  background: currentColor;
+  border-radius: 1px;
+}
+
+.cc-box {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  max-width: min(85%, 900px);
+  padding: 6px 14px;
+  background: rgba(0, 0, 0, 0.78);
+  border-radius: 4px;
+  color: #fff;
+  font-size: clamp(16px, 2.2vw, 22px);
+  line-height: 1.35;
+  font-weight: 500;
+  text-align: center;
+  pointer-events: none;
+  z-index: 6;
+  text-wrap: balance;
+}
+.hero:hover .cc-box,
+.hero:focus-within .cc-box { bottom: 96px; }
+@media (max-width: 640px) {
+  .cc-box { bottom: 56px; font-size: 15px; padding: 5px 10px; }
+  .hero:hover .cc-box, .hero:focus-within .cc-box { bottom: 80px; }
+}
 
 /* Chapters */
 .chapters-section {
