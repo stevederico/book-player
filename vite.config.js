@@ -325,6 +325,13 @@ export default defineConfig({
       port: 5173,
       overlay: false
     },
+    proxy: {
+      // Backend API + content assets are served by Hono on :8000.
+      // In prod the same routes are handled directly by Hono.
+      '/api': 'http://localhost:8000',
+      '/audio': 'http://localhost:8000',
+      '/images': 'http://localhost:8000'
+    },
     watch: {
       usePolling: false,
       ignored: ['**/node_modules/**', '**/.git/**']

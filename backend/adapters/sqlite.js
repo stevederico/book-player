@@ -101,6 +101,32 @@ export class SQLiteProvider {
         processed_at INTEGER NOT NULL
       )
     `);
+
+    // Guides table — content catalog (audio + transcript + chapters + word timings).
+    // chapters_json / timing_json hold JSON-serialized payloads; audio_url + thumbnail
+    // are URL pointers to filesystem assets under backend/public/.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS Guides (
+        slug TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        author TEXT,
+        date TEXT,
+        duration INTEGER,
+        audio_url TEXT,
+        thumbnail TEXT,
+        timing_offset REAL DEFAULT 0,
+        default_view_mode TEXT DEFAULT 'real',
+        transcript TEXT,
+        chapters_json TEXT NOT NULL,
+        timing_json TEXT,
+        visibility TEXT DEFAULT 'public',
+        created_by TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_guides_visibility ON Guides(visibility)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_guides_author ON Guides(author)`);
   }
 
   /**
@@ -340,6 +366,195 @@ export class SQLiteProvider {
     const sql = "INSERT INTO WebhookEvents (event_id, event_type, processed_at) VALUES (?, ?, ?)";
     db.prepare(sql).run(eventId, eventType, processedAt);
     return { insertedId: eventId };
+  }
+
+  /**
+   * Parse a JSON column safely, returning the fallback on null/invalid input.
+   *
+   * @param {string|null} raw - JSON text from a SQLite column
+   * @param {*} fallback - Value to return when raw is null or unparseable
+   * @returns {*} Parsed value or fallback
+   */
+  parseJsonColumn(raw, fallback) {
+    if (raw == null) return fallback;
+    try { return JSON.parse(raw); } catch { return fallback; }
+  }
+
+  /**
+   * Shape a Guides row into the frontend-facing object.
+   *
+   * Inflates chapters_json/timing_json, surfaces a chapterCount, and renames
+   * snake_case columns to the camelCase keys the player expects.
+   *
+   * @param {Object|null} row - Raw row from the Guides table
+   * @param {{includeTranscript?: boolean, includeTiming?: boolean, includeChapters?: boolean}} [opts]
+   * @returns {Object|null} Guide object or null
+   */
+  shapeGuide(row, opts = {}) {
+    if (!row) return null;
+    const includeTranscript = opts.includeTranscript !== false;
+    const includeTiming = opts.includeTiming !== false;
+    const includeChapters = opts.includeChapters !== false;
+
+    const chapters = this.parseJsonColumn(row.chapters_json, []);
+    const out = {
+      slug: row.slug,
+      title: row.title,
+      author: row.author,
+      date: row.date,
+      duration: row.duration,
+      audio: row.audio_url,
+      thumbnail: row.thumbnail,
+      timingOffset: row.timing_offset ?? 0,
+      defaultViewMode: row.default_view_mode || 'real',
+      visibility: row.visibility,
+      chapterCount: Array.isArray(chapters) ? chapters.length : 0,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+    if (includeChapters) out.chapters = chapters;
+    if (includeTranscript) out.transcript = row.transcript || '';
+    if (includeTiming) {
+      const timing = this.parseJsonColumn(row.timing_json, null);
+      if (timing) out.timing = timing;
+    }
+    return out;
+  }
+
+  /**
+   * List guides with summary fields only (no transcript, timing, or chapters body).
+   *
+   * Returns the minimal payload the catalog UI needs — does not surface
+   * player-only fields like timingOffset or defaultViewMode.
+   *
+   * @async
+   * @param {Database} db - SQLite database instance
+   * @param {{visibility?: string}} [filters={}] - Optional visibility filter
+   * @returns {Promise<Array<Object>>} Array of guide summaries ordered newest-first
+   */
+  async listGuides(db, filters = {}) {
+    let sql = `SELECT slug, title, author, date, duration, thumbnail, chapters_json,
+                      visibility, created_at, updated_at
+               FROM Guides`;
+    const params = [];
+    if (filters.visibility) {
+      sql += ` WHERE visibility = ?`;
+      params.push(filters.visibility);
+    }
+    sql += ` ORDER BY created_at DESC`;
+    const rows = db.prepare(sql).all(...params);
+    return rows.map(r => {
+      const chapters = this.parseJsonColumn(r.chapters_json, []);
+      return {
+        slug: r.slug,
+        title: r.title,
+        author: r.author,
+        date: r.date,
+        duration: r.duration,
+        thumbnail: r.thumbnail,
+        chapterCount: Array.isArray(chapters) ? chapters.length : 0,
+        visibility: r.visibility,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      };
+    });
+  }
+
+  /**
+   * Fetch one guide by slug, fully hydrated (chapters + transcript + timing).
+   *
+   * @async
+   * @param {Database} db - SQLite database instance
+   * @param {string} slug - Guide slug
+   * @returns {Promise<Object|null>} Guide object or null
+   */
+  async getGuide(db, slug) {
+    const row = db.prepare(`SELECT * FROM Guides WHERE slug = ?`).get(slug);
+    return this.shapeGuide(row);
+  }
+
+  /**
+   * Upsert a guide by slug. Used by both the migration script and POST /api/guides.
+   *
+   * Stores chapters and word timings as JSON text. Caller is responsible for
+   * authorization and validation.
+   *
+   * @async
+   * @param {Database} db - SQLite database instance
+   * @param {Object} guide - Guide payload
+   * @param {string} guide.slug - Unique slug (primary key)
+   * @param {string} guide.title - Title
+   * @param {string} [guide.author]
+   * @param {string} [guide.date]
+   * @param {number} [guide.duration]
+   * @param {string} [guide.audio] - Audio URL
+   * @param {string} [guide.thumbnail] - Thumbnail URL
+   * @param {number} [guide.timingOffset]
+   * @param {string} [guide.defaultViewMode]
+   * @param {string} [guide.transcript]
+   * @param {Array} [guide.chapters]
+   * @param {Object|Array} [guide.timing] - Word-timing payload (object or array)
+   * @param {string} [guide.visibility='public']
+   * @param {string} [guide.createdBy]
+   * @returns {Promise<{slug: string, inserted: boolean}>} Slug and whether the row was new
+   */
+  async upsertGuide(db, guide) {
+    const now = Date.now();
+    const existing = db.prepare(`SELECT slug FROM Guides WHERE slug = ?`).get(guide.slug);
+    const chaptersJson = JSON.stringify(guide.chapters ?? []);
+    const timingJson = guide.timing == null ? null : JSON.stringify(guide.timing);
+    const visibility = guide.visibility || 'public';
+
+    if (existing) {
+      const sql = `UPDATE Guides SET
+        title = ?, author = ?, date = ?, duration = ?,
+        audio_url = ?, thumbnail = ?, timing_offset = ?, default_view_mode = ?,
+        transcript = ?, chapters_json = ?, timing_json = ?,
+        visibility = ?, updated_at = ?
+        WHERE slug = ?`;
+      db.prepare(sql).run(
+        guide.title,
+        guide.author ?? null,
+        guide.date ?? null,
+        guide.duration ?? null,
+        guide.audio ?? null,
+        guide.thumbnail ?? null,
+        guide.timingOffset ?? 0,
+        guide.defaultViewMode ?? 'real',
+        guide.transcript ?? null,
+        chaptersJson,
+        timingJson,
+        visibility,
+        now,
+        guide.slug,
+      );
+      return { slug: guide.slug, inserted: false };
+    }
+
+    const sql = `INSERT INTO Guides
+      (slug, title, author, date, duration, audio_url, thumbnail,
+       timing_offset, default_view_mode, transcript, chapters_json, timing_json,
+       visibility, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    db.prepare(sql).run(
+      guide.slug,
+      guide.title,
+      guide.author ?? null,
+      guide.date ?? null,
+      guide.duration ?? null,
+      guide.audio ?? null,
+      guide.thumbnail ?? null,
+      guide.timingOffset ?? 0,
+      guide.defaultViewMode ?? 'real',
+      guide.transcript ?? null,
+      chaptersJson,
+      timingJson,
+      visibility,
+      guide.createdBy ?? null,
+      now,
+      now,
+    );
+    return { slug: guide.slug, inserted: true };
   }
 
   /**

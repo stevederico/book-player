@@ -213,6 +213,118 @@ or
 
 ---
 
+### Guides
+
+Audio guide catalog. Reads are public; writes are currently open (auth gating is on the todo — see `todo.md`).
+
+#### GET /api/guides
+List guide summaries. Returns only `public` visibility, newest-first.
+
+**Response (200):**
+```json
+[
+  {
+    "slug": "the-brand-age",
+    "title": "The Brand Age",
+    "author": "Paul Graham",
+    "date": "March 2026",
+    "duration": 2942,
+    "thumbnail": "/images/the-brand-age/generated/timeline-eras.jpg",
+    "chapterCount": 13,
+    "visibility": "public",
+    "createdAt": 1779488475341,
+    "updatedAt": 1779488527289
+  }
+]
+```
+
+---
+
+#### GET /api/guides/:slug
+Full guide payload — chapters, transcript, and word timings inlined.
+
+**Response (200):**
+```json
+{
+  "slug": "the-brand-age",
+  "title": "The Brand Age",
+  "author": "Paul Graham",
+  "date": "March 2026",
+  "duration": 2942,
+  "audio": "/audio/TheBrandAge.mp3",
+  "thumbnail": "/images/the-brand-age/generated/timeline-eras.jpg",
+  "timingOffset": 0.15,
+  "defaultViewMode": "real",
+  "visibility": "public",
+  "chapterCount": 13,
+  "chapters": [
+    { "time": 0, "title": "The Quartz Crisis", "quote": "…", "realImage": "/images/…", "caption": "…" }
+  ],
+  "transcript": "Full essay text…",
+  "timing": { "words": [{ "w": "The", "t": 0.12 }, { "w": "quartz", "t": 0.41 }] }
+}
+```
+
+**Errors:** `404` if no guide with that slug, or visibility is not `public`.
+
+---
+
+#### POST /api/guides
+Create a guide row. Audio is uploaded in a follow-up call.
+
+**Request Body:**
+```json
+{
+  "title": "My Essay",
+  "author": "Author Name",
+  "date": "May 2026",
+  "duration": 1234,
+  "transcript": "Full essay text…",
+  "thumbnail": "/images/my-essay/hero.jpg",
+  "defaultViewMode": "real",
+  "slug": "my-essay"
+}
+```
+
+**Validation:**
+- `title`: required, 1–200 characters
+- `slug`: optional — derived from title if omitted; must match `^[a-z0-9-]+$`
+- `defaultViewMode`: `"real"` (default) or `"generated"`
+
+**Response (201):**
+```json
+{ "slug": "my-essay" }
+```
+
+**Errors:**
+- `400` — invalid title or slug
+- `409` — slug already exists (response includes `slug`)
+
+---
+
+#### POST /api/guides/:slug/audio
+Multipart upload. Stores the file at `backend/public/audio/<slug>.mp3` and updates the guide's `audio_url`.
+
+**Request:** `multipart/form-data` with field `audio` (single file).
+
+**Validation:**
+- `slug`: must match `^[a-z0-9-]+$` and refer to an existing guide
+- Content-Type: must start with `audio/`
+- File size: max 200 MB
+
+**Response (200):**
+```json
+{ "audio": "/audio/my-essay.mp3", "bytes": 31415926 }
+```
+
+**Errors:**
+- `400` — invalid slug or missing `audio` field
+- `404` — guide does not exist
+- `413` — file too large
+- `415` — non-audio content-type
+
+---
+
 ### Payments (Stripe)
 
 #### POST /api/checkout

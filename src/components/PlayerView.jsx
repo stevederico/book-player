@@ -215,9 +215,6 @@ export default function PlayerView() {
   const [captionsOn, setCaptionsOn] = useState(() => {
     try { return localStorage.getItem('pg.cc') !== '0'; } catch { return true; }
   });
-  const [transcriptParas, setTranscriptParas] = useState(null);
-  const [timingWords, setTimingWords] = useState(null);
-  const [transcriptError, setTranscriptError] = useState(false);
   const menuRef = useRef(null);
   const feedbackTimerRef = useRef(null);
   const transcriptScrollRef = useRef(null);
@@ -239,8 +236,11 @@ export default function PlayerView() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/guides/${slug}.json`)
-      .then(r => r.json())
+    fetch(`/api/guides/${encodeURIComponent(slug)}`)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then(g => {
         if (cancelled) return;
         setGuide(g);
@@ -248,42 +248,26 @@ export default function PlayerView() {
         setDuration(g.duration || 0);
         document.title = (g.title || 'Player') + ' — Visual Player';
       })
-      .catch(() => {});
+      .catch(err => {
+        if (cancelled) return;
+        console.error('Failed to load guide:', err);
+      });
     return () => { cancelled = true; };
   }, [slug]);
 
-  useEffect(() => {
-    if (!guide?.transcript) { setTranscriptParas(null); setTranscriptError(false); return; }
-    let cancelled = false;
-    setTranscriptError(false);
-    fetch(guide.transcript)
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.text();
-      })
-      .then(txt => {
-        if (cancelled) return;
-        setTranscriptParas(parseTranscript(txt));
-      })
-      .catch(err => {
-        if (cancelled) return;
-        console.error('Failed to load transcript:', err);
-        setTranscriptError(true);
-      });
-    return () => { cancelled = true; };
-  }, [guide?.transcript]);
-
-  useEffect(() => {
-    if (!guide?.timing) { setTimingWords(null); return; }
-    let cancelled = false;
-    fetch(guide.timing)
-      .then(r => r.json())
-      .then(d => {
-        if (cancelled) return;
-        setTimingWords(Array.isArray(d) ? d : d.words || []);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
+  // Transcript + word timings now arrive inline on the guide payload —
+  // parse / normalize once per guide load instead of refetching them.
+  const transcriptParas = useMemo(
+    () => (typeof guide?.transcript === 'string' && guide.transcript.length)
+      ? parseTranscript(guide.transcript)
+      : null,
+    [guide?.transcript]
+  );
+  const timingWords = useMemo(() => {
+    const t = guide?.timing;
+    if (!t) return null;
+    if (Array.isArray(t)) return t;
+    return Array.isArray(t.words) ? t.words : null;
   }, [guide?.timing]);
 
   useEffect(() => {
@@ -686,10 +670,10 @@ export default function PlayerView() {
           </div>
         ) : (
           <div className="transcript" ref={transcriptScrollRef}>
-            {transcriptError ? (
-              <div className="transcript-empty">Transcript unavailable.</div>
-            ) : !transcriptParas ? (
+            {!guide ? (
               <div className="transcript-empty">Loading transcript…</div>
+            ) : !transcriptParas ? (
+              <div className="transcript-empty">Transcript unavailable.</div>
             ) : (
               transcriptParas.map((p, pi) => (
                 <p key={pi} className="transcript-para">

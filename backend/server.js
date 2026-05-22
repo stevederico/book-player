@@ -14,7 +14,26 @@ import { databaseManager } from "./adapters/manager.js";
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, mkdir, stat, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { writeFile, mkdir as mkdirP } from 'node:fs/promises';
 import { promisify } from 'node:util';
+
+const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MAX_AUDIO_BYTES = 200 * 1024 * 1024; // 200 MB
+
+/**
+ * Convert a title into a URL-safe kebab-case slug.
+ *
+ * Lowercases, replaces any run of non-alphanumeric chars with a single dash,
+ * trims leading/trailing dashes. Returns null if nothing usable remains.
+ *
+ * @param {string} title - Free-form title text
+ * @returns {string|null} Kebab-case slug, or null
+ */
+function slugify(title) {
+  if (typeof title !== 'string') return null;
+  const s = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return s.length ? s : null;
+}
 
 // ==== SERVER CONFIG ====
 const port = parseInt(process.env.PORT || "8000");
@@ -440,6 +459,9 @@ const db = {
   insertAuth: (authData) => databaseManager.insertAuth(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, authData),
   findWebhookEvent: (eventId) => databaseManager.findWebhookEvent(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, eventId),
   insertWebhookEvent: (eventId, eventType, processedAt) => databaseManager.insertWebhookEvent(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, eventId, eventType, processedAt),
+  listGuides: (filters) => databaseManager.listGuides(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, filters),
+  getGuide: (slug) => databaseManager.getGuide(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, slug),
+  upsertGuide: (guide) => databaseManager.upsertGuide(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, guide),
   executeQuery: (queryObject) => databaseManager.executeQuery(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, queryObject)
 };
 
@@ -881,6 +903,117 @@ app.post("/api/payment", async (c) => {
 // ==== STATIC ROUTES ====
 app.get("/api/health", (c) => c.json({ status: "ok", timestamp: Date.now() }));
 
+// ==== GUIDE ROUTES (public read) ====
+app.get("/api/guides", async (c) => {
+  try {
+    const guides = await db.listGuides({ visibility: 'public' });
+    return c.json(guides);
+  } catch (e) {
+    logger.error('List guides error', { error: e.message });
+    return c.json({ error: "Failed to load guides" }, 500);
+  }
+});
+
+app.get("/api/guides/:slug", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    const guide = await db.getGuide(slug);
+    if (!guide) return c.json({ error: "Guide not found" }, 404);
+    if (guide.visibility && guide.visibility !== 'public') {
+      return c.json({ error: "Guide not found" }, 404);
+    }
+    return c.json(guide);
+  } catch (e) {
+    logger.error('Get guide error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: "Failed to load guide" }, 500);
+  }
+});
+
+// Create a new guide. Open for now — see todo.md re: auth gating.
+// Audio is uploaded in a follow-up call to POST /api/guides/:slug/audio.
+app.post("/api/guides", async (c) => {
+  try {
+    const body = await parseJsonBody(c);
+    if (!body) return c.json({ error: "Invalid request body" }, 400);
+
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    if (!title) return c.json({ error: "Title required" }, 400);
+    if (title.length > 200) return c.json({ error: "Title too long" }, 400);
+
+    const slug = (typeof body.slug === 'string' && body.slug.trim()) || slugify(title);
+    if (!slug || !SLUG_REGEX.test(slug)) {
+      return c.json({ error: "Invalid slug — use lowercase letters, numbers, and dashes" }, 400);
+    }
+
+    const existing = await db.getGuide(slug);
+    if (existing) return c.json({ error: "A guide with this slug already exists", slug }, 409);
+
+    await db.upsertGuide({
+      slug,
+      title,
+      author: typeof body.author === 'string' ? body.author.trim() : null,
+      date: typeof body.date === 'string' ? body.date.trim() : null,
+      duration: Number.isFinite(body.duration) ? body.duration : null,
+      thumbnail: typeof body.thumbnail === 'string' ? body.thumbnail.trim() : null,
+      transcript: typeof body.transcript === 'string' ? body.transcript : null,
+      defaultViewMode: body.defaultViewMode === 'generated' ? 'generated' : 'real',
+      chapters: [],
+      timing: null,
+      audio: null,
+      visibility: 'public',
+    });
+
+    logger.info('Guide created', { slug });
+    return c.json({ slug }, 201);
+  } catch (e) {
+    logger.error('Create guide error', { error: e.message });
+    return c.json({ error: "Failed to create guide" }, 500);
+  }
+});
+
+// Upload an MP3 for an existing guide. Writes to backend/public/audio/<slug>.mp3
+// and updates the guide's audio_url to /audio/<slug>.mp3.
+app.post("/api/guides/:slug/audio", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+
+    const guide = await db.getGuide(slug);
+    if (!guide) return c.json({ error: "Guide not found" }, 404);
+
+    const form = await c.req.parseBody();
+    const file = form.audio;
+    if (!file || typeof file === 'string') return c.json({ error: "Missing 'audio' file field" }, 400);
+    if (!file.type || !file.type.startsWith('audio/')) {
+      return c.json({ error: `Unsupported content-type: ${file.type || 'unknown'}` }, 415);
+    }
+    if (typeof file.size === 'number' && file.size > MAX_AUDIO_BYTES) {
+      return c.json({ error: `File too large (max ${MAX_AUDIO_BYTES / 1024 / 1024} MB)` }, 413);
+    }
+
+    const audioDir = resolve(__dirname, './public/audio');
+    await mkdirP(audioDir, { recursive: true });
+    const outPath = resolve(audioDir, `${slug}.mp3`);
+    const buf = Buffer.from(await file.arrayBuffer());
+    await writeFile(outPath, buf);
+
+    const audioUrl = `/audio/${slug}.mp3`;
+    // Re-upsert with the same payload + new audio URL. Pull the existing guide
+    // so we don't blow away chapters/transcript/timing.
+    await db.upsertGuide({
+      ...guide,
+      audio: audioUrl,
+      // upsertGuide expects camelCase keys; guide already comes shaped that way.
+    });
+
+    logger.info('Audio uploaded', { slug, bytes: buf.length });
+    return c.json({ audio: audioUrl, bytes: buf.length });
+  } catch (e) {
+    logger.error('Audio upload error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: "Failed to upload audio" }, 500);
+  }
+});
+
 /**
  * Parse JSON request body with proper error handling
  *
@@ -1303,6 +1436,12 @@ app.post("/api/portal", authMiddleware, csrfProtection, async (c) => {
 
 // ==== STATIC FILE SERVING (Production) ====
 const staticDir = resolve(__dirname, config.staticDir);
+const backendPublicDir = resolve(__dirname, './public');
+
+// Content assets (audio + images) live under backend/public/ so they're served by
+// Hono in both dev (via Vite proxy) and prod. Mount before the SPA static catch-all.
+app.use('/audio/*', serveStatic({ root: backendPublicDir }));
+app.use('/images/*', serveStatic({ root: backendPublicDir }));
 
 // Serve static files
 app.use('/*', serveStatic({ root: staticDir }));

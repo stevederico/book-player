@@ -369,28 +369,48 @@ Skateboard uses an **Application Shell Architecture** where skateboard-ui provid
 
 ### Project Structure
 ```
-skateboard/
+book-player/
 ├── src/
-│   ├── components/       # Your custom components (e.g., HomeView.jsx)
-│   ├── assets/
-│   │   └── styles.css   # Brand color override (7 lines)
-│   ├── main.jsx         # Route definitions (16 lines)
-│   └── constants.json   # All your app config
+│   ├── components/
+│   │   ├── LibraryView.jsx   # / — guide catalog (fetches /api/guides)
+│   │   └── PlayerView.jsx    # /app/player/:slug — audio + transcript player
+│   ├── assets/{styles.css, pg.css}
+│   ├── main.jsx              # Routes
+│   └── constants.json
 ├── backend/
-│   ├── server.js        # Hono server
-│   ├── adapters/        # Database adapters (SQLite, PostgreSQL, MongoDB)
-│   ├── databases/       # SQLite database files
-│   └── config.json      # Backend config with database settings
-├── package.json         # Dependencies (includes skateboard-ui)
-└── vite.config.js       # Vite configuration (app-owned)
+│   ├── server.js             # Hono — /api/* + static mounts for /audio /images
+│   ├── adapters/             # SQLite (primary), Postgres + Mongo adapters
+│   ├── scripts/migrate-guides.js
+│   ├── databases/App.db
+│   └── public/
+│       ├── audio/            # MP3s, served with Range requests
+│       └── images/           # hero + chapter images
+├── public/                   # PWA icons / robots / sitemap only (no content)
+├── todo.md                   # Open work items (auth gating, Phase 4, etc.)
+├── package.json
+└── vite.config.js            # Dev proxies /api /audio /images → :8000
 ```
 
 **What's NOT in your app (provided by skateboard-ui):**
-- `context.jsx` - Imported from skateboard-ui/Context
-- Complex routing setup - Uses createSkateboardApp()
-- Full theme CSS - Imports base theme from skateboard-ui
+- `context.jsx` — imported from skateboard-ui/Context
+- Complex routing setup — uses `createSkateboardApp()`
+- Full theme CSS — imports base theme from skateboard-ui
 
-**Result:** ~550 lines of boilerplate → ~26 lines
+### Content Model
+
+Guides (audio essays / books) are stored in the SQLite `Guides` table — not in static files. Audio + images sit on disk under `backend/public/{audio,images}/` and Hono serves them with `Range` support so playback streams correctly.
+
+**The three content routes the frontend uses:**
+
+| Route | Purpose |
+|---|---|
+| `GET /api/guides` | Library summaries (slug, title, author, duration, thumbnail, chapterCount) |
+| `GET /api/guides/:slug` | Full payload: chapters, transcript, word timings, audio URL |
+| `POST /api/guides` + `POST /api/guides/:slug/audio` | Create flow (currently open; auth gating on `todo.md`) |
+
+In dev, Vite proxies `/api`, `/audio`, `/images` to the backend on `:8000`. In prod, Hono serves all three directly.
+
+**Adding a guide programmatically:** `backend/scripts/migrate-guides.js` reads JSON manifests + transcript files and upserts via `db.upsertGuide`. See `docs/SCHEMA.md` for the `Guides` table shape and `docs/API.md` for endpoint details.
 
 ### Frontend Stack
 - React, Vite, react-router-dom (latest versions)

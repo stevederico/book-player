@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 function fmtDuration(sec) {
   if (!sec) return '';
@@ -21,14 +21,17 @@ function initials(name) {
 }
 
 export default function LibraryView() {
+  const navigate = useNavigate();
   const [guides, setGuides] = useState([]);
   const [query, setQuery] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitLabel, setSubmitLabel] = useState('Create guide');
+  const [submitError, setSubmitError] = useState('');
 
   async function load() {
-    const res = await fetch('/guides/index.json');
+    const res = await fetch('/api/guides');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     setGuides(await res.json());
   }
 
@@ -50,24 +53,55 @@ export default function LibraryView() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const body = Object.fromEntries(fd.entries());
-    body.duration = Number(body.duration) || 0;
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const audioFile = fd.get('audio');
+    const metadata = {
+      title: (fd.get('title') || '').toString().trim(),
+      author: (fd.get('author') || '').toString().trim() || null,
+      thumbnail: (fd.get('thumbnail') || '').toString().trim() || null,
+      duration: Number(fd.get('duration')) || null,
+      transcript: (fd.get('transcript') || '').toString(),
+    };
     setSubmitting(true);
+    setSubmitError('');
     setSubmitLabel('Creating…');
     try {
-      const res = await fetch('/api/guides', {
+      const createRes = await fetch('/api/guides', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(metadata),
       });
-      if (!res.ok) throw new Error('Failed');
+      const createBody = await createRes.json().catch(() => ({}));
+      if (!createRes.ok) {
+        const msg = createBody?.error || `Failed (HTTP ${createRes.status})`;
+        throw new Error(msg);
+      }
+      const slug = createBody.slug;
+
+      if (audioFile instanceof File && audioFile.size > 0) {
+        setSubmitLabel('Uploading audio…');
+        const upload = new FormData();
+        upload.append('audio', audioFile);
+        const upRes = await fetch(`/api/guides/${encodeURIComponent(slug)}/audio`, {
+          method: 'POST',
+          body: upload,
+        });
+        if (!upRes.ok) {
+          const body = await upRes.json().catch(() => ({}));
+          throw new Error(body?.error || `Audio upload failed (HTTP ${upRes.status})`);
+        }
+      }
+
       setModalOpen(false);
       setSubmitLabel('Create guide');
+      form.reset();
       await load();
-    } catch {
+      navigate(`/app/player/${encodeURIComponent(slug)}`);
+    } catch (err) {
+      setSubmitError(err.message || 'Something went wrong');
       setSubmitLabel('Try again');
-      setTimeout(() => setSubmitLabel('Create guide'), 1500);
+      setTimeout(() => setSubmitLabel('Create guide'), 2000);
     } finally {
       setSubmitting(false);
     }
@@ -78,7 +112,7 @@ export default function LibraryView() {
       <header className="top-nav">
         <div className="brand">
           <span className="brand-mark"></span>
-          <span className="brand-name">PG / Audio</span>
+          <span className="brand-name">Book Player</span>
         </div>
         <div className="nav-search">
           <input
@@ -152,8 +186,8 @@ export default function LibraryView() {
             </label>
             <div className="field-row">
               <label className="field">
-                <span className="field-label">Audio URL</span>
-                <input name="audio" placeholder="/audio/MyEssay.mp3" />
+                <span className="field-label">Audio file (MP3)</span>
+                <input name="audio" type="file" accept="audio/*" />
               </label>
               <label className="field">
                 <span className="field-label">Hero image URL</span>
@@ -161,13 +195,18 @@ export default function LibraryView() {
               </label>
             </div>
             <label className="field">
-              <span className="field-label">Summary / opening line</span>
-              <textarea name="summary" rows="3" placeholder="One line that captures the piece." />
+              <span className="field-label">Transcript</span>
+              <textarea name="transcript" rows="10" placeholder="Paste the full essay text here. Plays alongside the audio with word-level highlighting." />
             </label>
             <label className="field">
-              <span className="field-label">Duration (seconds)</span>
+              <span className="field-label">Duration (seconds, optional)</span>
               <input name="duration" type="number" min="0" placeholder="2133" />
             </label>
+            {submitError ? (
+              <div role="alert" className="field-error" style={{ color: 'tomato', fontSize: 13, marginTop: 8 }}>
+                {submitError}
+              </div>
+            ) : null}
           </div>
           <footer className="modal-foot">
             <button type="button" className="btn-ghost" onClick={() => setModalOpen(false)}>Cancel</button>

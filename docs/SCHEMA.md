@@ -55,6 +55,49 @@ CREATE UNIQUE INDEX idx_users_email ON Users(email);
 
 ---
 
+### Guides
+
+Audio guide catalog. One row per playable essay/book. Audio + images live on disk under `backend/public/{audio,images}/`; the row stores URL pointers. Chapters and word timings are JSON-serialized into TEXT columns.
+
+#### SQLite
+
+```sql
+CREATE TABLE Guides (
+  slug              TEXT PRIMARY KEY,
+  title             TEXT NOT NULL,
+  author            TEXT,
+  date              TEXT,
+  duration          INTEGER,         -- seconds
+  audio_url         TEXT,            -- e.g. /audio/the-brand-age.mp3
+  thumbnail         TEXT,            -- e.g. /images/the-brand-age/hero.jpg
+  timing_offset     REAL DEFAULT 0,  -- compensates for MP3 encoder delay
+  default_view_mode TEXT DEFAULT 'real', -- 'real' | 'generated'
+  transcript        TEXT,            -- full essay text
+  chapters_json     TEXT NOT NULL,   -- JSON array: [{time,title,quote,image,realImage,caption}, ...]
+  timing_json       TEXT,            -- JSON: {words: [{w,t}, ...]} — word-level timestamps
+  visibility        TEXT DEFAULT 'public', -- 'public' | 'private'
+  created_by        TEXT,            -- FK Users._id (nullable)
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL
+);
+
+CREATE INDEX idx_guides_visibility ON Guides(visibility);
+CREATE INDEX idx_guides_author     ON Guides(author);
+```
+
+#### Field Notes
+
+| Field | Notes |
+|---|---|
+| `slug` | Kebab-case, `^[a-z0-9-]+$`. Also the on-disk file stem (`<slug>.mp3`). |
+| `chapters_json` | Required (`[]` for guides without chapters). Each chapter: `{time: seconds, title, quote, image?, realImage?, caption?, photoLink?, photoLabel?}`. |
+| `timing_json` | Nullable. Shape: `{words: [{w: "spoken text", t: 0.42}, ...]}`. Drives word-level highlight + captions overlay. |
+| `timing_offset` | Added to every word timestamp client-side. Compensates for MP3 encoder padding (~50-150 ms is typical). |
+| `default_view_mode` | Controls whether the player loads `image.generated` or `realImage` first. |
+| `visibility` | `GET /api/guides` filters to `public`. `private` rows are hidden from listings and detail. |
+
+---
+
 ### Auths
 
 Stores authentication credentials separately from user data.
@@ -178,6 +221,10 @@ CREATE INDEX idx_users_subscription ON Users(subscription_status);
 
 -- Auths table
 CREATE INDEX idx_auths_userid ON Auths(userID);
+
+-- Guides table
+CREATE INDEX idx_guides_visibility ON Guides(visibility);
+CREATE INDEX idx_guides_author     ON Guides(author);
 ```
 
 MongoDB automatically indexes `_id`. Create email index:

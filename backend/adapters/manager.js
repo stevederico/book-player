@@ -232,6 +232,51 @@ class DatabaseManager {
   }
 
   /**
+   * List guides (summary rows; no transcript, chapters body, or timing payload).
+   *
+   * @async
+   * @param {string} dbType - Database type
+   * @param {string} dbName - Database name
+   * @param {string} connectionString - Connection string or file path
+   * @param {{visibility?: string}} [filters={}] - Optional filters
+   * @returns {Promise<Array<Object>>} Guide summaries
+   */
+  async listGuides(dbType, dbName, connectionString, filters = {}) {
+    const { provider, database } = await this.getDatabase(dbType, dbName, connectionString);
+    return await provider.listGuides(database, filters);
+  }
+
+  /**
+   * Fetch one guide by slug, fully hydrated.
+   *
+   * @async
+   * @param {string} dbType - Database type
+   * @param {string} dbName - Database name
+   * @param {string} connectionString - Connection string or file path
+   * @param {string} slug - Guide slug
+   * @returns {Promise<Object|null>} Guide object or null
+   */
+  async getGuide(dbType, dbName, connectionString, slug) {
+    const { provider, database } = await this.getDatabase(dbType, dbName, connectionString);
+    return await provider.getGuide(database, slug);
+  }
+
+  /**
+   * Upsert a guide by slug.
+   *
+   * @async
+   * @param {string} dbType - Database type
+   * @param {string} dbName - Database name
+   * @param {string} connectionString - Connection string or file path
+   * @param {Object} guide - Guide payload (see SQLiteProvider#upsertGuide)
+   * @returns {Promise<{slug: string, inserted: boolean}>}
+   */
+  async upsertGuide(dbType, dbName, connectionString, guide) {
+    const { provider, database } = await this.getDatabase(dbType, dbName, connectionString);
+    return await provider.upsertGuide(database, guide);
+  }
+
+  /**
    * Execute custom query operation
    *
    * Generic query executor for provider-specific operations.
