@@ -153,11 +153,22 @@ export default function PlayerView() {
           <div className={`hero${playing ? '' : ' paused'}${isBoth ? ' split' : ''}`} ref={heroRef} onClick={handleHeroClick}>
             {isBoth ? (
               <div className="hero-split">
-                <img className="hero-half" alt="Generated" src={genSrc} />
-                <img className="hero-half" alt="Real photo" src={realSrc} />
+                <div className="hero-pane">
+                  {genSrc && <div className="hero-backdrop" style={{ backgroundImage: `url(${genSrc})` }} aria-hidden="true" />}
+                  <img className="hero-half" alt="Generated" src={genSrc} />
+                </div>
+                <div className="hero-pane">
+                  {realSrc && <div className="hero-backdrop" style={{ backgroundImage: `url(${realSrc})` }} aria-hidden="true" />}
+                  <img className="hero-half" alt="Real photo" src={realSrc} />
+                </div>
               </div>
             ) : (
-              heroSrc && <img id="main-img" alt="Current illustration" src={heroSrc} />
+              heroSrc && (
+                <>
+                  <div className="hero-backdrop" style={{ backgroundImage: `url(${heroSrc})` }} aria-hidden="true" />
+                  <img id="main-img" alt="Current illustration" src={heroSrc} />
+                </>
+              )
             )}
 
             <div className="overlay">

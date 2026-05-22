@@ -386,15 +386,15 @@ body {
 .player-nav {
   background: var(--bg);
   border-bottom: 1px solid var(--line);
-  padding: 18px 28px;
+  padding: 12px 28px;
   display: flex;
   align-items: baseline;
-  gap: 18px;
+  gap: 14px;
   flex-wrap: wrap;
 }
 .nav-title {
   font-family: 'Bricolage Grotesque', system-ui, sans-serif;
-  font-size: 1.55rem;
+  font-size: 1.3rem;
   font-weight: 800;
   letter-spacing: -0.03em;
   margin: 0;
@@ -630,6 +630,21 @@ h1 {
   object-fit: contain;
   display: block;
   vertical-align: bottom;
+  position: relative;
+  z-index: 1;
+}
+
+.hero-backdrop {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: blur(48px) saturate(1.3);
+  transform: scale(1.2);
+  opacity: 0.65;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .hero-split {
@@ -638,12 +653,22 @@ h1 {
   gap: 2px;
   width: 100%;
   height: 100%;
+  position: relative;
+  z-index: 1;
+}
+.hero-pane {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
 }
 .hero-split .hero-half {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  position: relative;
+  z-index: 1;
 }
 
 .hero .overlay {
