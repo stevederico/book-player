@@ -32,7 +32,9 @@ export default function PlayerView() {
   const [duration, setDuration] = useState(0);
   const [rate, setRate] = useState(1);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [feedback, setFeedback] = useState(null);
   const menuRef = useRef(null);
+  const feedbackTimerRef = useRef(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -69,7 +71,7 @@ export default function PlayerView() {
       if (e.target.matches && e.target.matches('input,select,textarea')) return;
       if (e.key === ' ' || e.key === 'k') {
         e.preventDefault();
-        a.paused ? a.play() : a.pause();
+        togglePlay();
       } else if (e.key === 'ArrowLeft') {
         a.currentTime = Math.max(0, a.currentTime - 10);
       } else if (e.key === 'ArrowRight') {
@@ -93,7 +95,21 @@ export default function PlayerView() {
   function togglePlay() {
     const a = audioRef.current;
     if (!a) return;
-    a.paused ? a.play().catch(() => {}) : a.pause();
+    const wasPaused = a.paused;
+    if (wasPaused) a.play().catch(() => {});
+    else a.pause();
+    flashFeedback(wasPaused ? 'play' : 'pause');
+  }
+
+  function flashFeedback(kind) {
+    setFeedback({ kind, id: Date.now() });
+    clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = setTimeout(() => setFeedback(null), 600);
+  }
+
+  function handleHeroClick(e) {
+    if (e.target.closest('.overlay')) return;
+    togglePlay();
   }
 
   const jumpToChapter = useCallback((ch, idx) => {
@@ -134,7 +150,7 @@ export default function PlayerView() {
 
       <div className="player-container">
         <div className="player-main">
-          <div className={`hero${playing ? '' : ' paused'}${isBoth ? ' split' : ''}`} ref={heroRef}>
+          <div className={`hero${playing ? '' : ' paused'}${isBoth ? ' split' : ''}`} ref={heroRef} onClick={handleHeroClick}>
             {isBoth ? (
               <div className="hero-split">
                 <img className="hero-half" alt="Generated" src={genSrc} />
@@ -214,11 +230,18 @@ export default function PlayerView() {
               </div>
             </div>
 
-            <div className={`play-overlay${playing ? '' : ' visible'}`} onClick={() => { if (audioRef.current?.paused) audioRef.current.play().catch(() => {}); }}>
-              <div className="big-play" role="button" aria-label="Play">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+            {feedback && (
+              <div className="play-feedback" key={feedback.id} aria-hidden="true">
+                <div className="play-feedback-icon">
+                  {feedback.kind === 'play' ? (
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                  ) : (
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z" /></svg>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
+
           </div>
 
           <audio
