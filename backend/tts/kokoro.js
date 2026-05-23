@@ -107,31 +107,79 @@ function floatToWav(samples, sampleRate) {
 }
 
 /**
- * Concatenate multiple WAV buffers into a single WAV file. Assumes all inputs
- * share the same format (16-bit PCM mono at `sampleRate`) — which is true for
- * every chunk produced by `synthesize()`.
+ * Concatenate multiple 16-bit PCM mono WAVs with an equal-power crossfade at
+ * every boundary. Eliminates the audible click/pop that you get from raw
+ * concatenation, where the last sample of chunk N rarely aligns with the
+ * first sample of chunk N+1.
  *
- * Strips the 44-byte RIFF/fmt/data header from each buffer, sums the raw PCM,
- * then writes a new master header with the total length.
+ * Crossfade length defaults to 25ms — short enough to be inaudible, long
+ * enough to mask the transition. Chunks shorter than 2× the crossfade fall
+ * back to butt-joining (no fade) to avoid eating the entire chunk.
  *
  * @param {Buffer[]} wavBuffers - WAV buffers from `floatToWav` / `synthesize`
  * @param {number} sampleRate - Sample rate (must match all inputs)
+ * @param {Object} [opts]
+ * @param {number} [opts.fadeMs=25] - Crossfade length per boundary
  * @returns {Buffer} Concatenated WAV file bytes
  */
-export function concatWav(wavBuffers, sampleRate) {
+export function concatWav(wavBuffers, sampleRate, { fadeMs = 25 } = {}) {
   if (!wavBuffers.length) throw new Error('concatWav: no buffers');
-  const pcmChunks = wavBuffers.map(b => b.subarray(44));
-  const totalPcmBytes = pcmChunks.reduce((n, c) => n + c.length, 0);
-  const out = Buffer.alloc(44 + totalPcmBytes);
-  out.write('RIFF', 0); out.writeUInt32LE(36 + totalPcmBytes, 4);
-  out.write('WAVE', 8); out.write('fmt ', 12);
-  out.writeUInt32LE(16, 16); out.writeUInt16LE(1, 20); out.writeUInt16LE(1, 22);
-  out.writeUInt32LE(sampleRate, 24); out.writeUInt32LE(sampleRate * 2, 28);
-  out.writeUInt16LE(2, 32); out.writeUInt16LE(16, 34);
-  out.write('data', 36); out.writeUInt32LE(totalPcmBytes, 40);
-  let off = 44;
-  for (const c of pcmChunks) { c.copy(out, off); off += c.length; }
-  return out;
+  if (wavBuffers.length === 1) return wavBuffers[0];
+
+  // Decode each chunk's PCM into Int16Array views (no copy).
+  const samples = wavBuffers.map(b => {
+    const pcm = b.subarray(44);
+    return new Int16Array(pcm.buffer, pcm.byteOffset, pcm.length / 2);
+  });
+
+  const fadeSamples = Math.max(1, Math.floor((fadeMs / 1000) * sampleRate));
+
+  // Worst-case output length (no overlap). We'll trim to actual at the end.
+  const maxTotal = samples.reduce((n, s) => n + s.length, 0);
+  const out = new Int16Array(maxTotal);
+
+  // Copy the first chunk wholesale.
+  out.set(samples[0], 0);
+  let writeIdx = samples[0].length;
+
+  for (let i = 1; i < samples.length; i++) {
+    const prev = samples[i - 1];
+    const curr = samples[i];
+    const fade = Math.min(fadeSamples, prev.length >> 1, curr.length >> 1);
+
+    if (fade < 8) {
+      // Tiny chunk — just butt-join.
+      out.set(curr, writeIdx);
+      writeIdx += curr.length;
+      continue;
+    }
+
+    // Equal-power crossfade: tail of prev (already at writeIdx-fade..writeIdx)
+    // mixes with head of curr.
+    const xStart = writeIdx - fade;
+    for (let j = 0; j < fade; j++) {
+      const t = (j + 1) / (fade + 1);          // 0..1 excluding endpoints
+      const gPrev = Math.cos(t * Math.PI / 2); // 1 → 0
+      const gCurr = Math.sin(t * Math.PI / 2); // 0 → 1
+      const mixed = out[xStart + j] * gPrev + curr[j] * gCurr;
+      out[xStart + j] = Math.max(-32768, Math.min(32767, mixed | 0));
+    }
+    // Copy the rest of curr after the fade region.
+    out.set(curr.subarray(fade), writeIdx);
+    writeIdx += curr.length - fade;
+  }
+
+  const totalPcmBytes = writeIdx * 2;
+  const file = Buffer.alloc(44 + totalPcmBytes);
+  file.write('RIFF', 0); file.writeUInt32LE(36 + totalPcmBytes, 4);
+  file.write('WAVE', 8); file.write('fmt ', 12);
+  file.writeUInt32LE(16, 16); file.writeUInt16LE(1, 20); file.writeUInt16LE(1, 22);
+  file.writeUInt32LE(sampleRate, 24); file.writeUInt32LE(sampleRate * 2, 28);
+  file.writeUInt16LE(2, 32); file.writeUInt16LE(16, 34);
+  file.write('data', 36); file.writeUInt32LE(totalPcmBytes, 40);
+  // Copy Int16Array bytes into the file buffer.
+  Buffer.from(out.buffer, out.byteOffset, totalPcmBytes).copy(file, 44);
+  return file;
 }
 
 export const KOKORO_SAMPLE_RATE = SAMPLE_RATE;
@@ -192,18 +240,24 @@ export async function synthesize(text, { voice = 'af_heart', speed = 1 } = {}) {
   const trimmed = (text || '').trim();
   if (!trimmed) throw new Error('synthesize: empty text');
 
-  // 1. Phonemize per-word so word boundaries survive. Phonemizing the whole
-  // text in one pass merges adjacent function words (e.g. "of the" → "ʌvðə")
-  // which kills timing alignment. Per-word costs a small prosody hit but keeps
-  // a clean N:N mapping between input words and IPA chunks.
+  // 1. Phonemize the WHOLE chunk in ONE call. This preserves espeak's natural
+  // coarticulation across word boundaries (e.g. "of the" → "ʌvðə"), which is
+  // what makes Kokoro sound like continuous speech instead of each word being
+  // pronounced in isolation. The per-word phonemize pass that used to live
+  // here killed prosody — never again.
   const inputWords = trimmed.split(/\s+/).filter(Boolean);
+  const phResult = await phonemize(trimmed, 'en-us');
+  const phStr = (Array.isArray(phResult) ? phResult.join(' ') : String(phResult)).trim();
+
+  // For timing alignment we still need to know each word's IPA so we can find
+  // where it lives inside phStr. Run a second per-word phonemize pass — used
+  // ONLY for the substring-match offsets, never fed to the model.
   const ipaWords = await Promise.all(
     inputWords.map(async (w) => {
       const r = await phonemize(w, 'en-us');
       return (Array.isArray(r) ? r.join(' ') : String(r)).trim();
     })
   );
-  const phStr = ipaWords.filter(Boolean).join(' ');
 
   // 2. Tokenize → input_ids
   const ids = await tokenizePhonemes(phStr);
@@ -228,25 +282,55 @@ export async function synthesize(text, { voice = 'af_heart', speed = 1 } = {}) {
   // 6. Build per-char start times
   const charTimes = buildCharTimes(durations, phChars.length);
 
-  // 7. Map IPA-word boundaries → original words. Because we phonemized per
-  // word, inputWords[i] and ipaWords[i] are guaranteed paired. Walk phChars
-  // counting code points to find each ipa word's start index.
+  // 7. Locate each input word inside phStr by substring-matching its per-word
+  // IPA. Walk forward monotonically so words never appear out of order. When
+  // a function word's IPA was merged by the whole-text phonemize and the
+  // substring can't be found, interpolate timing from neighbors.
   const words = [];
-  let cpIdx = 0; // current code-point index in phStr (= phChars)
-  for (let i = 0; i < ipaWords.length; i++) {
-    const w = ipaWords[i];
-    if (!w) continue;
-    // Skip any whitespace between the previous word and this one
-    while (cpIdx < phChars.length && /\s/.test(phChars[cpIdx])) cpIdx++;
-    const t = charTimes[cpIdx] ?? 0;
-    words.push({
-      w: inputWords[i],
-      t: Number(t.toFixed(3)),
-    });
-    cpIdx += [...w].length;
+  let searchFrom = 0;
+  for (let i = 0; i < inputWords.length; i++) {
+    const ipa = ipaWords[i];
+    let foundAt = -1;
+    if (ipa) {
+      // Try exact match starting from searchFrom.
+      foundAt = phStr.indexOf(ipa, searchFrom);
+      // If that fails, try matching just the leading 3 chars (handles merged
+      // function words where the tail got fused with the next word).
+      if (foundAt < 0 && ipa.length > 3) {
+        foundAt = phStr.indexOf(ipa.slice(0, 3), searchFrom);
+      }
+    }
+    if (foundAt >= 0) {
+      // Convert UTF-16 indexOf result to a code-point index for charTimes.
+      const cpIdx = [...phStr.slice(0, foundAt)].length;
+      const t = charTimes[cpIdx] ?? 0;
+      words.push({
+        w: inputWords[i],
+        t: Number(t.toFixed(3)),
+      });
+      searchFrom = foundAt + (ipa?.length || 1);
+    } else {
+      // Couldn't locate this word — emit a placeholder; we'll interpolate below.
+      words.push({ w: inputWords[i], t: null });
+    }
+  }
+
+  // Interpolate `t: null` placeholders using neighbors so the timing array
+  // stays monotonically non-decreasing for downstream highlight logic.
+  const audioDur = wave.length / SAMPLE_RATE;
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].t != null) continue;
+    let prev = i;
+    while (prev > 0 && words[prev].t == null) prev--;
+    let next = i;
+    while (next < words.length && words[next].t == null) next++;
+    const prevT = prev >= 0 && words[prev].t != null ? words[prev].t : 0;
+    const nextT = next < words.length && words[next].t != null ? words[next].t : audioDur;
+    const span = Math.max(1, next - prev);
+    words[i].t = Number((prevT + ((nextT - prevT) * (i - prev)) / span).toFixed(3));
   }
 
   const audioWav = floatToWav(wave, SAMPLE_RATE);
-  const durationSec = wave.length / SAMPLE_RATE;
+  const durationSec = audioDur;
   return { audioWav, words, sampleRate: SAMPLE_RATE, durationSec };
 }

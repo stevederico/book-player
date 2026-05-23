@@ -814,7 +814,7 @@ export default function PlayerView() {
 
           <audio
             ref={audioRef}
-            src={resolveAsset(guide.audio)}
+            src={`${resolveAsset(guide.audio)}${guide.updatedAt ? `?v=${guide.updatedAt}` : ''}`}
             style={{ display: 'none' }}
             onPlay={() => setPlaying(true)}
             onPause={() => {

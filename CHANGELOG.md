@@ -6,6 +6,15 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.55.0
+
+  Fix Kokoro coarticulation
+  Whole-text phonemize
+  Smaller TTS chunks
+  Crossfade chunk joins
+  Cache-bust audio URL
+  Summary tab default
+
 0.54.0
 
   Convert PlayerInfoPanel
