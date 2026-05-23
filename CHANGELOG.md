@@ -6,6 +6,14 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.42.0
+
+  Add drag-select notes in transcript
+  Make note popup clickable
+  Add custom note editor
+  Change selection highlight to blue
+  Remove popup close button
+
 0.41.0
 
   Extract PlayerChaptersMenu component

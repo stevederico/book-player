@@ -15,6 +15,7 @@ export default function PlayerInfoPanel({
   onWordClick,
   activeWordRef,
   fmt,
+  onTextSelected,
 }) {
   return (
     <>
@@ -106,6 +107,7 @@ export default function PlayerInfoPanel({
               activeWord={activeWord}
               onWordClick={onWordClick}
               activeRef={activeWordRef}
+              onTextSelected={onTextSelected}
             />
           )}
         </div>

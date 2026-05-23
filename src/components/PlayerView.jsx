@@ -34,9 +34,13 @@ export default function PlayerView() {
   });
   const [chaptersMenuOpen, setChaptersMenuOpen] = useState(false);
   const [notes, setNotes] = useState('');
+  const [noteSelection, setNoteSelection] = useState(null);
+  const [noteCustomText, setNoteCustomText] = useState('');
+  const [isNoteEditorOpen, setIsNoteEditorOpen] = useState(false);
   const menuRef = useRef(null);
   const chaptersMenuRef = useRef(null);
   const activeChapterItemRef = useRef(null);
+  const selectionPopupRef = useRef(null);
   const feedbackTimerRef = useRef(null);
   const transcriptScrollRef = useRef(null);
   const activeWordRef = useRef(null);
@@ -72,6 +76,35 @@ export default function PlayerView() {
     const el = activeChapterItemRef.current;
     if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
   }, [chaptersMenuOpen]);
+
+  // Close selection note popup on outside click (like other menus)
+  useEffect(() => {
+    if (!noteSelection) return;
+    function onDoc(e) {
+      if (selectionPopupRef.current && !selectionPopupRef.current.contains(e.target)) {
+        setNoteSelection(null);
+        setNoteCustomText('');
+        setIsNoteEditorOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [noteSelection]);
+
+  // Escape key closes the popup and clears any leftover browser selection
+  useEffect(() => {
+    if (!noteSelection) return;
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        setNoteSelection(null);
+        setNoteCustomText('');
+        setIsNoteEditorOpen(false);
+        window.getSelection()?.removeAllRanges();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [noteSelection]);
 
   function changeRate(r) {
     if (audioRef.current) audioRef.current.playbackRate = r;
@@ -264,6 +297,48 @@ export default function PlayerView() {
     a.play().catch(() => {});
   }
 
+  // Called by TranscriptView instances (hero + bottom) when user finishes a drag selection.
+  // Captures viewport rect for fixed popup positioning + resolves start time from anchors.
+  const handleTextSelected = useCallback((text, startIdx) => {
+    if (!anchors) return;
+    const t = timeAtWordIndex(anchors, startIdx);
+    const sel = window.getSelection();
+    let rect = null;
+    if (sel && sel.rangeCount > 0) {
+      const r = sel.getRangeAt(0).getBoundingClientRect();
+      rect = { top: r.top, left: r.left, bottom: r.bottom, width: r.width, height: r.height };
+    }
+    setNoteSelection({ text, time: t, rect });
+    setNoteCustomText('');
+    setIsNoteEditorOpen(false);
+  }, [anchors]);
+
+  function handleSaveNoteSelection() {
+    if (!noteSelection) return;
+    const quotePart = `[${fmt(noteSelection.time)}] "${noteSelection.text}"`;
+    const extra = noteCustomText.trim();
+    const entry = extra
+      ? `\n\n${quotePart}\n${extra}`
+      : `\n\n${quotePart}`;
+    const base = (notes || '').trimEnd();
+    updateNotes(base + entry);
+    setPanel('notes');
+    window.getSelection()?.removeAllRanges();
+    setNoteSelection(null);
+    setNoteCustomText('');
+    setIsNoteEditorOpen(false);
+  }
+
+  function openNoteEditor() {
+    if (!noteSelection) return;
+    setIsNoteEditorOpen(true);
+  }
+
+  function cancelNoteEditor() {
+    setIsNoteEditorOpen(false);
+    setNoteCustomText('');
+  }
+
   const jumpToChapter = useCallback((ch, idx) => {
     const a = audioRef.current;
     if (!a) return;
@@ -310,6 +385,7 @@ export default function PlayerView() {
                     activeWord={activeWord}
                     onWordClick={seekToWord}
                     activeRef={sideActiveWordRef}
+                    onTextSelected={handleTextSelected}
                   />
                 </div>
               </div>
@@ -514,9 +590,67 @@ export default function PlayerView() {
           onWordClick={seekToWord}
           activeWordRef={activeWordRef}
           fmt={fmt}
+          onTextSelected={handleTextSelected}
         />
       </div>
 
+      {/* Floating popup shown after drag-selecting text.
+          Click the quote area to open the rich editor (add your own note).
+          "Add note" button is the quick path (no custom text). */}
+      {noteSelection && (
+        <div
+          ref={selectionPopupRef}
+          className={`selection-popup ${isNoteEditorOpen ? 'editor' : ''}`}
+          style={{
+            top: `${Math.max(8, (noteSelection.rect?.top || 120) - (isNoteEditorOpen ? 110 : 52))}px`,
+            left: `${Math.max(8, Math.min(noteSelection.rect?.left || 100, (typeof window !== 'undefined' ? window.innerWidth : 900) - (isNoteEditorOpen ? 300 : 260)))}px`,
+          }}
+        >
+          {isNoteEditorOpen ? (
+            <div className="selection-editor">
+              <div className="selection-popup-content">
+                <span className="selection-time">[{fmt(noteSelection.time)}]</span>
+                <span className="selection-quote-full" title={noteSelection.text}>
+                  “{noteSelection.text.length > 80 ? noteSelection.text.slice(0, 77) + '…' : noteSelection.text}”
+                </span>
+              </div>
+              <textarea
+                className="selection-note-input"
+                placeholder="Add your own note, insight, or reaction…"
+                value={noteCustomText}
+                onChange={e => setNoteCustomText(e.target.value)}
+                rows={3}
+              />
+              <div className="selection-editor-actions">
+                <button type="button" className="selection-btn cancel" onClick={cancelNoteEditor}>Cancel</button>
+                <button type="button" className="selection-btn" onClick={handleSaveNoteSelection}>Save note</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div
+                className="selection-popup-content"
+                onClick={openNoteEditor}
+                style={{ cursor: 'pointer' }}
+                title="Click to add your own note"
+              >
+                <span className="selection-time">[{fmt(noteSelection.time)}]</span>
+                <span className="selection-quote" title={noteSelection.text}>
+                  {noteSelection.text.length > 62 ? noteSelection.text.slice(0, 59) + '…' : noteSelection.text}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="selection-btn"
+                onClick={(e) => { e.stopPropagation(); handleSaveNoteSelection(); }}
+                aria-label="Quick-add selection to notes"
+              >
+                Add note
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </>
   );
 }
