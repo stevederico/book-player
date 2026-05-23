@@ -6,6 +6,14 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.69.0
+
+  Splice punctuation pauses
+  Lead highlight 120ms
+  Center transcript scroll
+  Bottom scroll padding
+  Hide title input
+
 0.68.0
 
   Add breath padding

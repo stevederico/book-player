@@ -51,9 +51,13 @@ export function useTranscript(guide, duration, current, captionsOn = true) {
   const activeWord = useMemo(() => {
     if (!totalWords) return -1;
     const offset = guide?.timingOffset || 0;
+    // Lead audio by ~120ms so the highlight lands as the word is heard,
+    // not after. Compensates for output latency + perceptual lag.
+    const HIGHLIGHT_LEAD = 0.12;
+    const t = current - offset + HIGHLIGHT_LEAD;
     const w = wordStartTimes
-      ? wordIndexFromTimes(wordStartTimes, current - offset)
-      : wordIndexAtTime(anchors, current);
+      ? wordIndexFromTimes(wordStartTimes, t)
+      : wordIndexAtTime(anchors, t);
     return Math.max(0, Math.min(totalWords - 1, w));
   }, [current, anchors, wordStartTimes, totalWords, guide?.timingOffset]);
 

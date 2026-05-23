@@ -406,7 +406,8 @@ export default function PlayerView() {
     if (!playing) return;
     if (Date.now() < userScrollUntilRef.current) return;
 
-    // Bottom transcript panel: discrete correction only when the active word gets too low
+    // Bottom transcript panel: keep the active word roughly centered.
+    // Trigger when it drifts past ~55% down (or off-screen) and re-center at ~40%.
     const scroller = transcriptScrollRef.current;
     const el = activeWordRef.current;
     if (panel === 'transcript' && scroller && el) {
@@ -414,8 +415,8 @@ export default function PlayerView() {
       const sRect = scroller.getBoundingClientRect();
       const relTop = elRect.top - sRect.top;
       const h = sRect.height;
-      if (relTop > h * 0.75 || elRect.bottom < sRect.top) {
-        const target = scroller.scrollTop + relTop - h * 0.2;
+      if (relTop > h * 0.45 || elRect.bottom < sRect.top) {
+        const target = scroller.scrollTop + relTop - h * 0.3;
         scroller.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
       }
     }
@@ -667,7 +668,7 @@ export default function PlayerView() {
                 <div
                   ref={sideTranscriptScrollRef}
                   onClick={e => e.stopPropagation()}
-                  className="relative w-full h-full overflow-y-auto bg-[var(--hero-transcript-bg)] py-10 px-[clamp(24px,6vw,56px)] pb-28 font-['Literata',Charter,Georgia,serif] text-[1.15rem] leading-[1.55] text-foreground text-left cursor-default scrollbar-thin"
+                  className="relative w-full h-full overflow-y-auto bg-[var(--hero-transcript-bg)] py-10 px-[clamp(24px,6vw,56px)] pb-[60vh] font-['Literata',Charter,Georgia,serif] text-[1.15rem] leading-[1.55] text-foreground text-left cursor-default scrollbar-thin"
                 >
                   <TranscriptView
                     paras={transcriptParas}
@@ -875,10 +876,11 @@ export default function PlayerView() {
               </div>
             </div>
 
-            {activeCaption && !showSplit && (
+            {activeCaption && (
               <div
                 aria-live="polite"
-                className="absolute left-1/2 bottom-[max(56px,calc(56px+env(safe-area-inset-bottom)))] -translate-x-1/2 max-w-[min(85%,900px)] max-sm:max-w-[calc(100%-24px)] py-1.5 px-3.5 bg-black/80 rounded text-white text-[clamp(16px,2.2vw,22px)] max-sm:text-[15px] leading-[1.35] font-medium text-center pointer-events-none z-[4] text-balance group-hover/hero:bottom-[max(96px,calc(96px+env(safe-area-inset-bottom)))] group-data-[controls=visible]/hero:bottom-[max(96px,calc(96px+env(safe-area-inset-bottom)))] group-focus-within/hero:bottom-[max(96px,calc(96px+env(safe-area-inset-bottom)))]"
+                data-split={showSplit || undefined}
+                className="absolute left-1/2 bottom-[max(56px,calc(56px+env(safe-area-inset-bottom)))] -translate-x-1/2 max-w-[min(85%,900px)] max-sm:max-w-[calc(100%-24px)] py-1.5 px-3.5 bg-black/80 rounded text-white text-[clamp(16px,2.2vw,22px)] max-sm:text-[15px] leading-[1.35] font-medium text-center pointer-events-none z-[4] text-balance group-hover/hero:bottom-[max(96px,calc(96px+env(safe-area-inset-bottom)))] group-data-[controls=visible]/hero:bottom-[max(96px,calc(96px+env(safe-area-inset-bottom)))] group-focus-within/hero:bottom-[max(96px,calc(96px+env(safe-area-inset-bottom)))] data-[split]:left-[27.78%] data-[split]:max-w-[min(47%,500px)]"
               >
                 <span>{activeCaption.text}</span>
               </div>

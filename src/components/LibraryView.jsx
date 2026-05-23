@@ -521,18 +521,6 @@ export default function LibraryView() {
                 </div>
               )}
 
-              {sourceData.transcript && (
-                <div className="mt-4 flex flex-col gap-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-[0.04em]">Title</label>
-                  <input
-                    type="text"
-                    value={sourceData.title}
-                    onChange={e => setSourceData(d => ({ ...d, title: e.target.value }))}
-                    placeholder="Untitled Guide"
-                    className="w-full border border-border bg-background text-foreground rounded-lg px-3 py-2.5 text-[15px] outline-none transition-colors focus:border-[var(--accent)]"
-                  />
-                </div>
-              )}
               {submitError ? (
                 <div role="alert" className="text-destructive text-[13px] mt-2">
                   {submitError}

@@ -8,13 +8,56 @@
 
 import { synthesize, concatWav, silenceWav, KOKORO_SAMPLE_RATE } from './kokoro.js';
 
+/**
+ * Extract a sample range [startSample, endSample) from a 16-bit PCM mono WAV
+ * buffer and re-wrap it as a standalone WAV. Used to chop a synthesized chunk
+ * into sub-segments at intra-chunk punctuation pauses without re-running the
+ * model (which would lose coarticulation).
+ */
+function sliceWavSamples(wavBuffer, sampleRate, startSample, endSample) {
+  const n = Math.max(0, endSample - startSample);
+  const out = Buffer.alloc(44 + n * 2);
+  out.write('RIFF', 0); out.writeUInt32LE(36 + n * 2, 4);
+  out.write('WAVE', 8); out.write('fmt ', 12);
+  out.writeUInt32LE(16, 16); out.writeUInt16LE(1, 20); out.writeUInt16LE(1, 22);
+  out.writeUInt32LE(sampleRate, 24); out.writeUInt32LE(sampleRate * 2, 28);
+  out.writeUInt16LE(2, 32); out.writeUInt16LE(16, 34);
+  out.write('data', 36); out.writeUInt32LE(n * 2, 40);
+  wavBuffer.copy(out, 44, 44 + startSample * 2, 44 + endSample * 2);
+  return out;
+}
+
+/**
+ * Scan a segment's word list for punctuation that should trigger a pause,
+ * returning `{ atTime, durSec }` entries (only between two real words —
+ * no pause after the very last word; the chunk-seam handler covers that).
+ */
+function findPunctuationPauses(words) {
+  const pauses = [];
+  for (let i = 0; i < words.length - 1; i++) {
+    const w = words[i].w;
+    const nextT = words[i + 1].t;
+    if (/[.!?]["')\]]?$/.test(w)) pauses.push({ atTime: nextT, durSec: SENTENCE_PAUSE_SEC });
+    else if (/[,;:]["')\]]?$/.test(w)) pauses.push({ atTime: nextT, durSec: PHRASE_PAUSE_SEC });
+  }
+  return pauses;
+}
+
 // Explicit breath padding inserted between chunks. Kokoro pauses ~150ms for
 // `.` mid-chunk via espeak's prosody, but cross-chunk boundaries get none —
 // the next chunk starts cold and the crossfade in `concatWav` butt-joins
 // what should be a breath. These values target natural human cadence:
-//   sentence: ~280ms (on top of Kokoro's intra-chunk ~150ms)
-//   paragraph: ~700ms (full breath between thoughts)
-const PAUSE_MS = { sentence: 280, paragraph: 700, none: 0 };
+//   sentence: ~450ms (on top of Kokoro's intra-chunk ~150ms)
+//   paragraph: ~900ms (full breath between thoughts)
+const PAUSE_MS = { sentence: 450, paragraph: 900, none: 0 };
+
+// Intra-chunk punctuation pauses, spliced into the rendered audio at the
+// boundary between two words. These supplement espeak's native prosody
+// (~150ms for `.`, ~80ms for `,`) which most listeners feel is too rushed.
+//   comma/colon/semicolon: ~220ms additional → ~300ms total phrase pause
+//   period/!/?: ~450ms additional → ~600ms total sentence pause
+const PHRASE_PAUSE_SEC = 0.22;
+const SENTENCE_PAUSE_SEC = 0.45;
 
 /**
  * Synthesize one chunk, and if Kokoro complains about input length
@@ -145,11 +188,52 @@ export async function synthesizeGuide({ transcript, voice = 'af_heart', speed = 
     const chunk = chunks[i];
     const result = await synthesizeWithFallback(chunk.text, { voice, speed });
     for (const segment of result) {
-      for (const w of segment.words) {
-        words.push({ w: w.w, t: Number((w.t + elapsed).toFixed(3)) });
+      const sr = segment.sampleRate || KOKORO_SAMPLE_RATE;
+      const totalSamples = Math.floor(segment.durationSec * sr);
+      const pauses = findPunctuationPauses(segment.words);
+
+      if (!pauses.length) {
+        for (const w of segment.words) {
+          words.push({ w: w.w, t: Number((w.t + elapsed).toFixed(3)) });
+        }
+        wavs.push(segment.audioWav);
+        elapsed += segment.durationSec;
+        continue;
       }
-      wavs.push(segment.audioWav);
-      elapsed += segment.durationSec;
+
+      // Split the rendered audio at each punctuation boundary and interleave
+      // silence. Word timings shift by the cumulative inserted silence so the
+      // highlighter stays aligned with the audio post-splice.
+      const splitSamples = pauses.map(p =>
+        Math.max(0, Math.min(totalSamples, Math.round(p.atTime * sr)))
+      );
+      const boundaries = [0, ...splitSamples, totalSamples];
+      let wIdx = 0;
+      for (let bi = 0; bi < boundaries.length - 1; bi++) {
+        const startS = boundaries[bi];
+        const endS = boundaries[bi + 1];
+        if (endS <= startS) continue;
+        const subStartT = startS / sr;
+        const subEndT = endS / sr;
+        const subDur = subEndT - subStartT;
+        while (wIdx < segment.words.length && segment.words[wIdx].t < subEndT) {
+          const localT = segment.words[wIdx].t - subStartT;
+          words.push({ w: segment.words[wIdx].w, t: Number((elapsed + localT).toFixed(3)) });
+          wIdx++;
+        }
+        wavs.push(sliceWavSamples(segment.audioWav, sr, startS, endS));
+        elapsed += subDur;
+        if (bi < pauses.length) {
+          const pauseSec = pauses[bi].durSec;
+          wavs.push(silenceWav(pauseSec, sr));
+          elapsed += pauseSec;
+        }
+      }
+      while (wIdx < segment.words.length) {
+        const localT = segment.words[wIdx].t - (totalSamples / sr);
+        words.push({ w: segment.words[wIdx].w, t: Number((elapsed + localT).toFixed(3)) });
+        wIdx++;
+      }
     }
     const pauseMs = PAUSE_MS[chunk.breakAfter] ?? 0;
     if (pauseMs > 0) {

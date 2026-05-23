@@ -92,7 +92,7 @@ export default function PlayerInfoPanel({
       {panel === 'transcript' && (
         <div
           ref={transcriptScrollRef}
-          className="h-[70vh] overflow-y-auto pt-2 px-1.5 pb-6 font-['Literata',Charter,Georgia,serif] scrollbar-thin"
+          className="h-[70vh] overflow-y-auto pt-2 px-1.5 pb-[60vh] font-['Literata',Charter,Georgia,serif] scrollbar-thin"
         >
           {!guide ? (
             <div className="text-muted-foreground text-[0.95rem] py-3.5 px-1.5">Loading transcript…</div>
