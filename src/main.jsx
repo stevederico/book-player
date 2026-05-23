@@ -11,14 +11,12 @@ function MinimalLayout() {
 }
 
 const appRoutes = [
-  { path: 'player/:slug', element: <PlayerView /> },
-  { path: 'player', element: <PlayerView /> },
+  { path: 'home', element: <LibraryView /> },
+  { path: ':slug', element: <PlayerView /> },
 ];
 
 createSkateboardApp({
   constants,
   appRoutes,
-  defaultRoute: 'player',
-  landingPage: <LibraryView />,
   overrides: { layout: MinimalLayout },
 });

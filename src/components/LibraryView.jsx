@@ -97,7 +97,7 @@ export default function LibraryView() {
       setSubmitLabel('Create guide');
       form.reset();
       await load();
-      navigate(`/app/player/${encodeURIComponent(slug)}`);
+      navigate(`/app/${encodeURIComponent(slug)}`);
     } catch (err) {
       setSubmitError(err.message || 'Something went wrong');
       setSubmitLabel('Try again');
@@ -145,7 +145,7 @@ export default function LibraryView() {
       ) : (
         <main className="grid">
           {filtered.map(g => (
-            <Link key={g.slug} className="card" to={`/app/player/${encodeURIComponent(g.slug)}`}>
+            <Link key={g.slug} className="card" to={`/app/${encodeURIComponent(g.slug)}`}>
               <div className="card-thumb">
                 {g.thumbnail && <img loading="lazy" alt="" src={resolveThumb(g.thumbnail)} />}
                 {g.duration ? <span className="duration">{fmtDuration(g.duration)}</span> : null}
