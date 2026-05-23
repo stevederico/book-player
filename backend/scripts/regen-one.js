@@ -17,7 +17,7 @@ if (!row?.transcript) { console.error(`no transcript for ${slug}`); process.exit
 
 const t0 = Date.now();
 let lastTick = 0;
-const { audioWav, words, totalDuration } = await synthesizeGuide({
+const { audioWav, words, totalDuration, transcript } = await synthesizeGuide({
   transcript: row.transcript,
   onProgress: ({ chunksDone, chunksTotal }) => {
     const now = Date.now();
@@ -33,8 +33,10 @@ await mkdir(outDir, { recursive: true });
 const outPath = resolve(outDir, `${slug}.wav`);
 await writeFile(outPath, audioWav);
 
+// Persist the normalized transcript so the displayed words match the timing
+// stream (em/en dashes are split into standalone tokens during normalization).
 const timingJson = JSON.stringify({ words });
-db.prepare('UPDATE Guides SET timing_json = ?, duration = ?, audio_url = ? WHERE slug = ?')
-  .run(timingJson, Math.round(totalDuration), `/audio/${slug}.wav`, slug);
+db.prepare('UPDATE Guides SET timing_json = ?, duration = ?, audio_url = ?, transcript = ? WHERE slug = ?')
+  .run(timingJson, Math.round(totalDuration), `/audio/${slug}.wav`, transcript, slug);
 
 console.log(`[regen] done in ${((Date.now() - t0) / 1000).toFixed(1)}s — duration=${totalDuration.toFixed(1)}s words=${words.length} wav=${outPath}`);

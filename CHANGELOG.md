@@ -6,6 +6,14 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.70.0
+
+  Preserve punctuation tokens
+  Native Kokoro pauses
+  Normalize em dashes
+  Persist normalized transcript
+  Regen founder-mode
+
 0.69.0
 
   Splice punctuation pauses

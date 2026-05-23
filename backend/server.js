@@ -1418,7 +1418,7 @@ async function runTtsJob(slug, guide) {
     await mkdirP(audioDir, { recursive: true });
     const outPath = resolve(audioDir, `${slug}.wav`);
 
-    const { audioWav, words, totalDuration } = await synthesizeGuide({
+    const { audioWav, words, totalDuration, transcript: normalizedTranscript } = await synthesizeGuide({
       transcript: guide.transcript,
       onProgress: ({ chunksDone, chunksTotal }) => {
         // Best-effort progress write — errors here shouldn't kill the job.
@@ -1428,9 +1428,13 @@ async function runTtsJob(slug, guide) {
 
     await writeFile(outPath, audioWav);
 
+    // Persist the normalized transcript so the frontend tokenizer produces the
+    // same tokens (em/en dashes are split out) as the timing stream — otherwise
+    // alignTimings falls back to the previous word's time for those rows.
     const fresh = await db.getGuide(slug);
     await db.upsertGuide({
       ...fresh,
+      transcript: normalizedTranscript,
       audio: `/audio/${slug}.wav`,
       duration: Math.round(totalDuration),
       timing: { words },

@@ -239,11 +239,12 @@ function buildCharTimes(durations, phLen) {
 /**
  * Generate speech for `text` and return WAV bytes plus per-word timestamps.
  *
- * Phonemization is global (one call for the whole text); we then split the
- * IPA on whitespace to recover per-word phoneme spans and pair them with
- * the original input words by position. If the pairing length disagrees
- * (e.g. phonemizer merges or drops a token), we fall back to the IPA word
- * as the surface form so timestamps still cover the audio.
+ * Phonemization is per-clause (split on punctuation), reassembled with the
+ * original punctuation chars between clauses so Kokoro's vocab tokens for
+ * `, . ; : ! ? — …` reach the model and trigger its learned pause durations
+ * — the `phonemizer` npm strips them otherwise, which makes sentences run
+ * together. Word alignment skips punctuation chars when matching per-word
+ * IPA against the whole-text IPA stream.
  *
  * @param {string} text - Text to speak
  * @param {Object} [opts]
@@ -251,18 +252,51 @@ function buildCharTimes(durations, phLen) {
  * @param {number} [opts.speed=1] - Speech rate; 1 = natural
  * @returns {Promise<{audioWav: Buffer, words: Array<{w: string, t: number}>, sampleRate: number, durationSec: number}>}
  */
+// Kokoro vocab includes explicit punctuation tokens (`,` `.` `;` `:` `!` `?`
+// `—` `…`) with learned pause durations. The `phonemizer` npm package strips
+// ALL punctuation on output ("Hello, world." → ["həlˈoʊ", "wˈɜːld"]) so the
+// model never sees them and the pauses never fire — sentences run together.
+// To preserve punctuation, split text at every punctuation mark, phonemize
+// each clause separately (coarticulation within a clause is preserved; the
+// coarticulation lost at punctuation boundaries doesn't matter because a
+// natural pause breaks coarticulation there anyway), and re-assemble with
+// the original punctuation chars interleaved between clauses.
+const PAUSE_PUNCT_GLOBAL = /([.,!?;:…—]+)/g;
+const KOKORO_PUNCT_SET = new Set([',', '.', '!', '?', ';', ':', '…', '—']);
+
+async function phonemizeWithPunctuation(text, lang = 'en-us') {
+  const parts = text.split(PAUSE_PUNCT_GLOBAL);
+  const out = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part) continue;
+    if (i % 2 === 0) {
+      const seg = part.trim();
+      if (!seg) continue;
+      const r = await phonemize(seg, lang);
+      const ph = (Array.isArray(r) ? r.join(' ') : String(r)).trim();
+      if (ph) out.push(ph);
+    } else {
+      // Keep only vocab-known punctuation chars (drop runs of repeats too;
+      // `...` already collapses to `…` if present, but `..` stays as `..`
+      // which Kokoro treats as two `.` tokens — fine for an extra-long pause).
+      const punct = [...part].filter(c => KOKORO_PUNCT_SET.has(c)).join('');
+      if (punct) out.push(punct);
+    }
+  }
+  return out.join(' ').trim();
+}
+
 export async function synthesize(text, { voice = 'af_heart', speed = 1 } = {}) {
   const trimmed = (text || '').trim();
   if (!trimmed) throw new Error('synthesize: empty text');
 
-  // 1. Phonemize the WHOLE chunk in ONE call. This preserves espeak's natural
-  // coarticulation across word boundaries (e.g. "of the" → "ʌvðə"), which is
-  // what makes Kokoro sound like continuous speech instead of each word being
-  // pronounced in isolation. The per-word phonemize pass that used to live
-  // here killed prosody — never again.
+  // 1. Phonemize the WHOLE chunk, preserving punctuation tokens so Kokoro
+  // applies its learned pause durations. See phonemizeWithPunctuation above.
+  // Per-word phonemize was banned for killing coarticulation; per-clause is
+  // safe because punctuation already breaks coarticulation in real speech.
   const inputWords = trimmed.split(/\s+/).filter(Boolean);
-  const phResult = await phonemize(trimmed, 'en-us');
-  const phStr = (Array.isArray(phResult) ? phResult.join(' ') : String(phResult)).trim();
+  const phStr = await phonemizeWithPunctuation(trimmed, 'en-us');
 
   // For timing alignment we still need to know each word's IPA so we can find
   // where it lives inside phStr. Run a second per-word phonemize pass — used
@@ -315,13 +349,17 @@ export async function synthesize(text, { voice = 'af_heart', speed = 1 } = {}) {
   //   3) 1:1 — assign and advance.
   const audioDur = wave.length / SAMPLE_RATE;
 
-  // Build normalized phStr (no stress marks) + reverse map back to original
-  // code-point indices, so we can look up charTimes by the original position.
+  // Build normalized phStr (no stress marks, no punctuation) + reverse map
+  // back to original code-point indices for charTimes lookup. Punctuation
+  // chars are hidden from word alignment — they carry their own model-emitted
+  // pause duration but aren't part of any input word's pronunciation.
   const phNormCps = [];
   const phNormToOrig = [];
   for (let i = 0; i < phChars.length; i++) {
-    if (phChars[i] === 'ˈ' || phChars[i] === 'ˌ') continue;
-    phNormCps.push(phChars[i]);
+    const c = phChars[i];
+    if (c === 'ˈ' || c === 'ˌ') continue;
+    if (KOKORO_PUNCT_SET.has(c)) continue;
+    phNormCps.push(c);
     phNormToOrig.push(i);
   }
 

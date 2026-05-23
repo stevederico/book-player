@@ -31,6 +31,11 @@ function sliceWavSamples(wavBuffer, sampleRate, startSample, endSample) {
  * Scan a segment's word list for punctuation that should trigger a pause,
  * returning `{ atTime, durSec }` entries (only between two real words —
  * no pause after the very last word; the chunk-seam handler covers that).
+ *
+ * Matches three classes:
+ *   - sentence: word ends in `.!?` (optionally followed by a closing quote/paren)
+ *   - dash:     word is a standalone em/en dash, or ends in one
+ *   - phrase:   word ends in `,;:`
  */
 function findPunctuationPauses(words) {
   const pauses = [];
@@ -38,26 +43,55 @@ function findPunctuationPauses(words) {
     const w = words[i].w;
     const nextT = words[i + 1].t;
     if (/[.!?]["')\]]?$/.test(w)) pauses.push({ atTime: nextT, durSec: SENTENCE_PAUSE_SEC });
+    else if (/^[—–]+$/.test(w) || /[—–]["')\]]?$/.test(w)) pauses.push({ atTime: nextT, durSec: DASH_PAUSE_SEC });
     else if (/[,;:]["')\]]?$/.test(w)) pauses.push({ atTime: nextT, durSec: PHRASE_PAUSE_SEC });
   }
   return pauses;
 }
 
-// Explicit breath padding inserted between chunks. Kokoro pauses ~150ms for
-// `.` mid-chunk via espeak's prosody, but cross-chunk boundaries get none —
-// the next chunk starts cold and the crossfade in `concatWav` butt-joins
-// what should be a breath. These values target natural human cadence:
-//   sentence: ~450ms (on top of Kokoro's intra-chunk ~150ms)
-//   paragraph: ~900ms (full breath between thoughts)
-const PAUSE_MS = { sentence: 450, paragraph: 900, none: 0 };
+// Explicit breath padding inserted between chunks. Kokoro now emits real
+// pauses for `.`/`!`/`?` natively via the punctuation tokens in its vocab
+// (~300-450ms learned from training data), since phonemizeWithPunctuation in
+// kokoro.js stopped stripping them. Cross-chunk seams still need a small
+// top-up because concatWav's 25ms equal-power crossfade eats the trailing
+// silence, and paragraph breaks want extra breath beyond a sentence end.
+const PAUSE_MS = { sentence: 150, paragraph: 700, none: 0 };
 
-// Intra-chunk punctuation pauses, spliced into the rendered audio at the
-// boundary between two words. These supplement espeak's native prosody
-// (~150ms for `.`, ~80ms for `,`) which most listeners feel is too rushed.
-//   comma/colon/semicolon: ~220ms additional → ~300ms total phrase pause
-//   period/!/?: ~450ms additional → ~600ms total sentence pause
-const PHRASE_PAUSE_SEC = 0.22;
-const SENTENCE_PAUSE_SEC = 0.45;
+// Intra-chunk punctuation splice — dialed down since Kokoro now produces
+// the bulk of each pause natively (was 300/450/600 when punctuation was
+// stripped from input; native pauses now contribute most of the breath).
+// Tune up if a particular punctuation still feels rushed after regenerating.
+//   comma/colon/semicolon: ~100ms additional on top of ~200ms native
+//   em/en dash:            ~150ms additional on top of ~150ms native
+//   period/!/?:            ~150ms additional on top of ~400ms native
+const PHRASE_PAUSE_SEC = 0.10;
+const DASH_PAUSE_SEC = 0.15;
+const SENTENCE_PAUSE_SEC = 0.15;
+
+/**
+ * Pre-process a transcript so the TTS and frontend tokenizers both see em/en
+ * dashes as standalone tokens. Espeak emits ~zero pause for an inline `—`
+ * (e.g. "word—word"), and our punctuation-pause detector only sees the END
+ * of each word, so inline dashes get no audible break. Splitting them out
+ * makes them their own token: Kokoro speaks a brief pause, the detector adds
+ * DASH_PAUSE_SEC of silence, and the frontend transcript (which also splits
+ * on whitespace) lines up word-for-word with the timing stream.
+ *
+ * Also converts `--` and `---` to `—` so prose using ASCII dashes gets the
+ * same treatment.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function normalizeForTts(text) {
+  // Lookbehind/lookahead so consecutive dashes (e.g. "a—b—c") all match — a
+  // capturing variant would consume the boundary char and skip every other one.
+  return String(text || '')
+    .replace(/-{2,}/g, '—')                  // -- / --- → em dash
+    .replace(/(?<=\S)([—–])(?=\S)/g, ' $1 ') // inline dash → standalone
+    .replace(/(?<=\S)([—–])(?=\s)/g, ' $1')  // trailing dash on word → standalone
+    .replace(/(?<=\s)([—–])(?=\S)/g, '$1 '); // leading dash on word → standalone
+}
 
 /**
  * Synthesize one chunk, and if Kokoro complains about input length
@@ -171,12 +205,19 @@ function chunkBySentence(text, maxChars = MAX_CHUNK_CHARS) {
  * @param {string} [args.voice='af_heart'] - Kokoro voice id
  * @param {number} [args.speed=1] - Speech rate
  * @param {function({chunksDone: number, chunksTotal: number}): void} [args.onProgress]
- * @returns {Promise<{audioWav: Buffer, words: Array<{w: string, t: number}>, totalDuration: number, sampleRate: number}>}
+ * @returns {Promise<{audioWav: Buffer, words: Array<{w: string, t: number}>, totalDuration: number, sampleRate: number, transcript: string}>}
+ *          `transcript` is the normalized version actually fed to the TTS;
+ *          the caller should persist it so the displayed transcript stays
+ *          tokenized the same way as the timing stream.
  */
 export async function synthesizeGuide({ transcript, voice = 'af_heart', speed = 1, onProgress }) {
   if (!transcript || transcript.length < 50) throw new Error('Transcript too short');
 
-  const chunks = chunkBySentence(transcript);
+  // Normalize once up front. The caller should persist this back so the
+  // displayed transcript and the timing stream stay tokenized the same way.
+  const normalized = normalizeForTts(transcript);
+
+  const chunks = chunkBySentence(normalized);
   let chunksTotal = chunks.length;
   onProgress?.({ chunksDone: 0, chunksTotal });
 
@@ -187,7 +228,8 @@ export async function synthesizeGuide({ transcript, voice = 'af_heart', speed = 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     const result = await synthesizeWithFallback(chunk.text, { voice, speed });
-    for (const segment of result) {
+    for (let segIdx = 0; segIdx < result.length; segIdx++) {
+      const segment = result[segIdx];
       const sr = segment.sampleRate || KOKORO_SAMPLE_RATE;
       const totalSamples = Math.floor(segment.durationSec * sr);
       const pauses = findPunctuationPauses(segment.words);
@@ -234,6 +276,16 @@ export async function synthesizeGuide({ transcript, voice = 'af_heart', speed = 
         words.push({ w: segment.words[wIdx].w, t: Number((elapsed + localT).toFixed(3)) });
         wIdx++;
       }
+
+      // Inter-segment seam pause. Only fires when synthesizeWithFallback had to
+      // split a chunk (recoverable-error retry path) — those splits happen on
+      // sentence boundaries, so the LAST word of every non-final segment ends
+      // in `.!?` and deserves a sentence-grade breath. findPunctuationPauses
+      // intentionally skips the last word, so we handle it here.
+      if (segIdx < result.length - 1) {
+        wavs.push(silenceWav(SENTENCE_PAUSE_SEC, sr));
+        elapsed += SENTENCE_PAUSE_SEC;
+      }
     }
     const pauseMs = PAUSE_MS[chunk.breakAfter] ?? 0;
     if (pauseMs > 0) {
@@ -250,5 +302,6 @@ export async function synthesizeGuide({ transcript, voice = 'af_heart', speed = 
     words,
     totalDuration: Number(elapsed.toFixed(3)),
     sampleRate: KOKORO_SAMPLE_RATE,
+    transcript: normalized,
   };
 }
