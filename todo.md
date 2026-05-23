@@ -1,5 +1,12 @@
 # Todo
 
+- Side by side transcription playback
+- Make transcription area more like Kindle reader
+- npm i kokoro-js for backend
+- Name project
+- Generate full audio for remaining essays
+- Improve Kokoro chunking quality
+
 ## Auth (do first — blocks Phase 4)
 
 - Gate write routes — `POST /api/guides`, `POST /api/guides/:slug/audio`, future `PUT`/`DELETE` — behind `authMiddleware` + `csrfProtection` (existing patterns in `backend/server.js`)

@@ -216,7 +216,13 @@ export default function PlayerView() {
   const [captionsOn, setCaptionsOn] = useState(() => {
     try { return localStorage.getItem('pg.cc') !== '0'; } catch { return true; }
   });
+  const [splitTranscript, setSplitTranscript] = useState(() => {
+    try { return localStorage.getItem('pg.split') === '1'; } catch { return false; }
+  });
+  const [chaptersMenuOpen, setChaptersMenuOpen] = useState(false);
   const menuRef = useRef(null);
+  const chaptersMenuRef = useRef(null);
+  const activeChapterItemRef = useRef(null);
   const feedbackTimerRef = useRef(null);
   const transcriptScrollRef = useRef(null);
   const activeWordRef = useRef(null);
@@ -235,10 +241,37 @@ export default function PlayerView() {
     if (!menuOpen) setSettingsPage('main');
   }, [menuOpen]);
 
+  useEffect(() => {
+    if (!chaptersMenuOpen) return;
+    function onDoc(e) {
+      if (chaptersMenuRef.current && !chaptersMenuRef.current.contains(e.target)) setChaptersMenuOpen(false);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [chaptersMenuOpen]);
+
+  useEffect(() => {
+    if (!chaptersMenuOpen) return;
+    const el = activeChapterItemRef.current;
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  }, [chaptersMenuOpen]);
+
   function changeRate(r) {
     if (audioRef.current) audioRef.current.playbackRate = r;
     setRate(r);
   }
+
+  function toggleSplitTranscript() {
+    setSplitTranscript(v => {
+      const next = !v;
+      try { localStorage.setItem('pg.split', next ? '1' : '0'); } catch {}
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    if (splitTranscript && panel === 'transcript') setPanel('chapters');
+  }, [splitTranscript, panel]);
 
   const audioRef = useRef(null);
   const heroRef = useRef(null);
@@ -254,7 +287,7 @@ export default function PlayerView() {
       .then(g => {
         if (cancelled) return;
         setGuide(g);
-        setMode(g.defaultViewMode || 'real');
+        setMode(g.defaultViewMode === 'generated' ? 'generated' : 'real');
         setDuration(g.duration || 0);
         document.title = (g.title || 'Player') + ' — Visual Player';
       })
@@ -401,10 +434,11 @@ export default function PlayerView() {
       scroller.removeEventListener('wheel', pauseAutoScroll);
       scroller.removeEventListener('touchmove', pauseAutoScroll);
     };
-  }, [panel]);
+  }, [panel, splitTranscript]);
 
   useEffect(() => {
-    if (panel !== 'transcript' || !playing) return;
+    const transcriptVisible = transcriptParas && (splitTranscript || panel === 'transcript');
+    if (!transcriptVisible || !playing) return;
     if (Date.now() < userScrollUntilRef.current) return;
     const el = activeWordRef.current;
     const scroller = transcriptScrollRef.current;
@@ -417,7 +451,7 @@ export default function PlayerView() {
       const target = scroller.scrollTop + relTop - h * 0.2;
       scroller.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
     }
-  }, [activeWord, panel, playing]);
+  }, [activeWord, panel, playing, splitTranscript, transcriptParas]);
 
   function seekToWord(wIdx) {
     const a = audioRef.current;
@@ -451,9 +485,7 @@ export default function PlayerView() {
   const ch = chapters[activeIdx] || chapters[0] || {};
   const wantsReal = (mode === 'real') && ch.realImage;
   const heroSrc = resolveAsset(wantsReal ? ch.realImage : (ch.image && ch.image.generated) || '');
-  const genSrc = resolveAsset((ch.image && ch.image.generated) || '');
-  const realSrc = resolveAsset(ch.realImage || '');
-  const isBoth = mode === 'both' && ch.realImage;
+  const showSplit = splitTranscript && !!transcriptParas;
   const dur = duration || guide.duration || 1;
   const pct = Math.max(0, Math.min(100, (current / dur) * 100));
 
@@ -461,16 +493,36 @@ export default function PlayerView() {
     <>
       <div className="player-container">
         <div className="player-main">
-          <div className={`hero${playing ? '' : ' paused'}${isBoth ? ' split' : ''}`} ref={heroRef} onClick={handleHeroClick}>
-            {isBoth ? (
+          <div className={`hero${playing ? '' : ' paused'}${showSplit ? ' split' : ''}`} ref={heroRef} onClick={handleHeroClick}>
+            {showSplit ? (
               <div className="hero-split">
                 <div className="hero-pane">
-                  {genSrc && <div className="hero-backdrop" style={{ backgroundImage: `url(${genSrc})` }} aria-hidden="true" />}
-                  <img className="hero-half" alt="Generated" src={genSrc} />
+                  {heroSrc && <div className="hero-backdrop" style={{ backgroundImage: `url(${heroSrc})` }} aria-hidden="true" />}
+                  {heroSrc && <img className="hero-half" alt="Current illustration" src={heroSrc} />}
                 </div>
-                <div className="hero-pane">
-                  {realSrc && <div className="hero-backdrop" style={{ backgroundImage: `url(${realSrc})` }} aria-hidden="true" />}
-                  <img className="hero-half" alt="Real photo" src={realSrc} />
+                <div
+                  className="hero-pane hero-transcript-pane"
+                  ref={transcriptScrollRef}
+                  onClick={e => e.stopPropagation()}
+                >
+                  {transcriptParas.map((p, pi) => (
+                    <p key={pi} className="transcript-para">
+                      {p.words.map((w, wi) => {
+                        const isActive = w.index === activeWord;
+                        const isPast = w.index < activeWord;
+                        return (
+                          <span
+                            key={wi}
+                            ref={isActive ? activeWordRef : null}
+                            className={`tw${isActive ? ' active' : ''}${isPast ? ' past' : ''}`}
+                            onClick={() => seekToWord(w.index)}
+                          >
+                            {w.text}{wi < p.words.length - 1 ? ' ' : ''}
+                          </span>
+                        );
+                      })}
+                    </p>
+                  ))}
                 </div>
               </div>
             ) : (
@@ -516,7 +568,38 @@ export default function PlayerView() {
                     <span className="time">{fmt(dur / rate)}</span>
                   </div>
 
-                  <div className="chapter-title">{ch.title || ''}</div>
+                  <div className="chapters-menu" ref={chaptersMenuRef}>
+                    <button
+                      type="button"
+                      className="chapter-title-btn"
+                      title="Jump to chapter"
+                      aria-haspopup="menu"
+                      aria-expanded={chaptersMenuOpen}
+                      onClick={() => setChaptersMenuOpen(o => !o)}
+                    >
+                      <span className="chapter-title-text">{ch.title || ''}</span>
+                    </button>
+                    {chaptersMenuOpen && (
+                      <div className="chapters-popup" role="menu">
+                        <div className="chapters-popup-header">Chapters</div>
+                        <div className="chapters-popup-list">
+                          {chapters.map((c, i) => (
+                            <button
+                              key={i}
+                              role="menuitemradio"
+                              aria-checked={i === activeIdx}
+                              ref={i === activeIdx ? activeChapterItemRef : null}
+                              className={`chapters-popup-item${i === activeIdx ? ' active' : ''}`}
+                              onClick={() => { jumpToChapter(c, i); setChaptersMenuOpen(false); }}
+                            >
+                              <span className="chapters-popup-time">{fmt(c.time)}</span>
+                              <span className="chapters-popup-title">{c.title}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="volume-control" title="Volume">
                     <svg className="vol-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -568,6 +651,28 @@ export default function PlayerView() {
                                 <path d="m9 18 6-6-6-6" />
                               </svg>
                             </button>
+                            {transcriptParas && (
+                              <button
+                                className="settings-row"
+                                role="menuitemcheckbox"
+                                aria-checked={splitTranscript}
+                                onClick={toggleSplitTranscript}
+                              >
+                                <span className="settings-row-icon">
+                                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <rect x="3" y="5" width="18" height="14" rx="2" />
+                                    <path d="M14 5v14" />
+                                    <path d="M16.5 9.5h3" />
+                                    <path d="M16.5 12h3" />
+                                    <path d="M16.5 14.5h3" />
+                                  </svg>
+                                </span>
+                                <span className="settings-row-label">Show transcript</span>
+                                <span className={`settings-toggle${splitTranscript ? ' on' : ''}`} aria-hidden="true">
+                                  <span className="settings-toggle-knob" />
+                                </span>
+                              </button>
+                            )}
                             <button
                               className="settings-row"
                               role="menuitemcheckbox"
@@ -614,7 +719,7 @@ export default function PlayerView() {
                               </svg>
                               <span>View</span>
                             </button>
-                            {['generated', 'real', 'both'].map(m => (
+                            {['generated', 'real'].map(m => (
                               <button
                                 key={m}
                                 role="menuitemradio"
@@ -682,7 +787,7 @@ export default function PlayerView() {
               </div>
             </div>
 
-            {activeCaption && (
+            {activeCaption && !showSplit && (
               <div className="cc-box" aria-live="polite">
                 <span className="cc-text">{activeCaption.text}</span>
               </div>
@@ -742,7 +847,7 @@ export default function PlayerView() {
             >
               Chapters
             </button>
-            {guide.transcript && (
+            {guide.transcript && !splitTranscript && (
               <button
                 role="tab"
                 aria-selected={panel === 'transcript'}
