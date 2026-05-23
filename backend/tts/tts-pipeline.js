@@ -6,7 +6,7 @@
 // from a background promise — emits progress via the `onProgress` callback
 // so the HTTP layer can update Guides.jobs_json without blocking.
 
-import { synthesize, concatWav, silenceWav, KOKORO_SAMPLE_RATE } from './kokoro.js';
+import { synthesize, concatWav, silenceWav, wavToMp3, KOKORO_SAMPLE_RATE } from './kokoro.js';
 
 /**
  * Extract a sample range [startSample, endSample) from a 16-bit PCM mono WAV
@@ -205,7 +205,9 @@ function chunkBySentence(text, maxChars = MAX_CHUNK_CHARS) {
  * @param {string} [args.voice='af_heart'] - Kokoro voice id
  * @param {number} [args.speed=1] - Speech rate
  * @param {function({chunksDone: number, chunksTotal: number}): void} [args.onProgress]
- * @returns {Promise<{audioWav: Buffer, words: Array<{w: string, t: number}>, totalDuration: number, sampleRate: number, transcript: string}>}
+ * @returns {Promise<{audioMp3: Buffer, words: Array<{w: string, t: number}>, totalDuration: number, sampleRate: number, transcript: string}>}
+ *          `audioMp3` is 64kbps mono MP3 — the pipeline renders WAV internally
+ *          for sample-accurate splicing, then transcodes once at the very end.
  *          `transcript` is the normalized version actually fed to the TTS;
  *          the caller should persist it so the displayed transcript stays
  *          tokenized the same way as the timing stream.
@@ -297,13 +299,20 @@ export async function synthesizeGuide({ transcript, voice = 'af_heart', speed = 
     onProgress?.({ chunksDone: done, chunksTotal });
   }
 
+  // fadeMs:0 — every seam in this pipeline is wav→silence→wav, so the
+  // crossfade is smoothing silence and only steals nominal time. Each
+  // crossfade lost ~25ms from the output, compounding to ~5s drift over a
+  // long guide and dragging the highlighter behind the audio. Butt-joining
+  // is safe here because all wav-to-wav transitions go through silence.
+  const wav = concatWav(wavs, KOKORO_SAMPLE_RATE, { fadeMs: 0 });
+  // Transcode to MP3 at the very end. The pipeline needed lossless WAV
+  // internally for sample-accurate splicing/silence insertion; once that's
+  // done, MP3@64k mono is ~6× smaller (a 1hr guide goes from 170MB → 28MB)
+  // and stays under GitHub's 100MB per-file ceiling. Encoder padding is
+  // ~10-25ms — well inside the 270ms HIGHLIGHT_LEAD — so timings stay valid.
+  const audioMp3 = await wavToMp3(wav);
   return {
-    // fadeMs:0 — every seam in this pipeline is wav→silence→wav, so the
-    // crossfade is smoothing silence and only steals nominal time. Each
-    // crossfade lost ~25ms from the output, compounding to ~5s drift over a
-    // long guide and dragging the highlighter behind the audio. Butt-joining
-    // is safe here because all wav-to-wav transitions go through silence.
-    audioWav: concatWav(wavs, KOKORO_SAMPLE_RATE, { fadeMs: 0 }),
+    audioMp3,
     words,
     totalDuration: Number(elapsed.toFixed(3)),
     sampleRate: KOKORO_SAMPLE_RATE,

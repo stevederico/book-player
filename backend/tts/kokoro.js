@@ -11,6 +11,7 @@
 import ort from 'onnxruntime-node';
 import { phonemize } from 'phonemizer';
 import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tokenizePhonemes } from './vocab.js';
@@ -197,6 +198,36 @@ export const KOKORO_SAMPLE_RATE = SAMPLE_RATE;
 export function silenceWav(durationSec, sampleRate = SAMPLE_RATE) {
   const n = Math.max(0, Math.round(durationSec * sampleRate));
   return floatToWav(new Float32Array(n), sampleRate);
+}
+
+/**
+ * Encode a WAV buffer to MP3 (mono, 64kbps) via ffmpeg/libmp3lame. Requires
+ * `ffmpeg` on PATH. Speech-tuned: 64k mono is transparent for single-voice
+ * narration and 6× smaller than 24kHz/16-bit PCM, keeping long guides under
+ * GitHub's 100MB per-file limit.
+ *
+ * @param {Buffer} wavBuf - WAV file bytes
+ * @returns {Promise<Buffer>} MP3 file bytes
+ */
+export function wavToMp3(wavBuf) {
+  return new Promise((resolve, reject) => {
+    const ff = spawn('ffmpeg', [
+      '-loglevel', 'error',
+      '-f', 'wav', '-i', 'pipe:0',
+      '-codec:a', 'libmp3lame', '-b:a', '64k', '-ac', '1',
+      '-f', 'mp3', 'pipe:1',
+    ]);
+    const out = [];
+    const err = [];
+    ff.stdout.on('data', d => out.push(d));
+    ff.stderr.on('data', d => err.push(d));
+    ff.on('error', reject);
+    ff.on('close', code => {
+      if (code !== 0) return reject(new Error(`ffmpeg exit ${code}: ${Buffer.concat(err).toString()}`));
+      resolve(Buffer.concat(out));
+    });
+    ff.stdin.end(wavBuf);
+  });
 }
 
 /**

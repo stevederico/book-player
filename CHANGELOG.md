@@ -6,6 +6,12 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.76.0
+
+  Pipeline emits MP3
+  Add wavToMp3 helper
+  Regen need-to-read
+
 0.75.0
 
   Rename lib to utils

@@ -1370,7 +1370,7 @@ app.post("/api/guides/:slug/summary", async (c) => {
 
 // Kick off a Kokoro TTS run for a guide. Fire-and-forget — returns 202 with
 // jobId so the FE can poll GET /api/guides/:slug and watch guide.jobs.tts.
-// On completion: writes /audio/<slug>.wav and updates audio/duration/timing.
+// On completion: writes /audio/<slug>.mp3 and updates audio/duration/timing.
 app.post("/api/guides/:slug/tts", async (c) => {
   try {
     const slug = c.req.param('slug');
@@ -1416,9 +1416,9 @@ async function runTtsJob(slug, guide) {
   try {
     const audioDir = resolve(__dirname, './public/audio');
     await mkdirP(audioDir, { recursive: true });
-    const outPath = resolve(audioDir, `${slug}.wav`);
+    const outPath = resolve(audioDir, `${slug}.mp3`);
 
-    const { audioWav, words, totalDuration, transcript: normalizedTranscript } = await synthesizeGuide({
+    const { audioMp3, words, totalDuration, transcript: normalizedTranscript } = await synthesizeGuide({
       transcript: guide.transcript,
       onProgress: ({ chunksDone, chunksTotal }) => {
         // Best-effort progress write — errors here shouldn't kill the job.
@@ -1426,7 +1426,7 @@ async function runTtsJob(slug, guide) {
       },
     });
 
-    await writeFile(outPath, audioWav);
+    await writeFile(outPath, audioMp3);
 
     // Persist the normalized transcript so the frontend tokenizer produces the
     // same tokens (em/en dashes are split out) as the timing stream — otherwise
@@ -1435,7 +1435,7 @@ async function runTtsJob(slug, guide) {
     await db.upsertGuide({
       ...fresh,
       transcript: normalizedTranscript,
-      audio: `/audio/${slug}.wav`,
+      audio: `/audio/${slug}.mp3`,
       duration: Math.round(totalDuration),
       timing: { words },
     });
