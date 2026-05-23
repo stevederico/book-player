@@ -7,7 +7,7 @@ import {
   wordIndexAtTime,
   buildCaptionChunks,
   chunkIndexAtWord,
-} from '../lib/playerUtils.js';
+} from '../utils/playerUtils.js';
 
 /**
  * Custom hook that handles all transcript parsing, timing alignment,

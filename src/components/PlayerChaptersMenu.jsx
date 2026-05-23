@@ -1,5 +1,5 @@
 import React, { forwardRef, memo, useCallback } from 'react';
-import { fmt } from '../lib/playerUtils';
+import { fmt } from '../utils/playerUtils';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import {
   Sheet,

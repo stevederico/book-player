@@ -14,7 +14,7 @@ import { synthesize } from "./tts/kokoro.js";
 import { generateChapters } from "./tts/chapters.js";
 import { analyzeTranscript, attachChapterTimes } from "./tts/analyze.js";
 import { synthesizeGuide } from "./tts/tts-pipeline.js";
-import { generateImage, extFromContentType, pLimit } from "./lib/grokImagine.js";
+import { generateImage, extFromContentType, pLimit } from "./utils/grokImagine.js";
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, mkdir, stat, readFileSync, writeFileSync, statSync } from 'node:fs';

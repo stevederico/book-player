@@ -7,7 +7,7 @@ import {
   findChapterIndex,
   timeAtWordIndex,
   chunkIndexAtWord,
-} from '../lib/playerUtils.js';
+} from '../utils/playerUtils.js';
 import { useTranscript } from '../hooks/useTranscript.js';
 import TranscriptView from './TranscriptView.jsx';
 import PlayerSettings from './PlayerSettings.jsx';

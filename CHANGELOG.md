@@ -6,6 +6,12 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.75.0
+
+  Rename lib to utils
+  Unignore playerUtils module
+  Unignore grokImagine module
+
 0.74.0
 
   Compress brand-age MP3
