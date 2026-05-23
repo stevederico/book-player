@@ -4,7 +4,6 @@
 
 While `noLogin: true` (fast iteration, no sign-in friction):
 
-- **Refactor PlayerView.jsx** — 993 lines of dense logic is still the biggest technical debt. Split alignment, caption engine, UI panels, and keyboard handling.
 - **Improve create flow polish** (core flow is now usable):
   - Basic chapter editor + word timing upload + Kind selector working
   - Audio is URL-based (we generate it externally) — no longer required in modal
@@ -61,6 +60,7 @@ Everything below only becomes relevant once auth is enabled (`noLogin: false`, r
 ---
 
 **Recent wins (dev mode)**:
+- Major PlayerView refactor (utilities + useTranscript hook + 5 components extracted; file reduced from ~993 → ~522 lines)
 - Local progress + resume (`pg.progress.${slug}`)
 - Create flow now supports chapters + timing JSON + kind (Essay/Lecture)
 - Filter chips on home actually work

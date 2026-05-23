@@ -8,6 +8,10 @@ import {
   chunkIndexAtWord,
 } from '../lib/playerUtils.js';
 import { useTranscript } from '../hooks/useTranscript.js';
+import TranscriptView from './TranscriptView.jsx';
+import PlayerSettings from './PlayerSettings.jsx';
+import PlayerChaptersMenu from './PlayerChaptersMenu.jsx';
+import PlayerInfoPanel from './PlayerInfoPanel.jsx';
 
 export default function PlayerView() {
   const { slug = 'the-brand-age' } = useParams();
@@ -301,24 +305,12 @@ export default function PlayerView() {
                   ref={sideTranscriptScrollRef}
                   onClick={e => e.stopPropagation()}
                 >
-                  {transcriptParas.map((p, pi) => (
-                    <p key={pi} className="transcript-para">
-                      {p.words.map((w, wi) => {
-                        const isActive = w.index === activeWord;
-                        const isPast = w.index < activeWord;
-                        return (
-                          <span
-                            key={wi}
-                            ref={isActive ? sideActiveWordRef : null}
-                            className={`tw${isActive ? ' active' : ''}${isPast ? ' past' : ''}`}
-                            onClick={() => seekToWord(w.index)}
-                          >
-                            {w.text}{wi < p.words.length - 1 ? ' ' : ''}
-                          </span>
-                        );
-                      })}
-                    </p>
-                  ))}
+                  <TranscriptView
+                    paras={transcriptParas}
+                    activeWord={activeWord}
+                    onWordClick={seekToWord}
+                    activeRef={sideActiveWordRef}
+                  />
                 </div>
               </div>
             ) : (
@@ -364,38 +356,15 @@ export default function PlayerView() {
                     <span className="time">{fmt(dur / rate)}</span>
                   </div>
 
-                  <div className="chapters-menu" ref={chaptersMenuRef}>
-                    <button
-                      type="button"
-                      className="chapter-title-btn"
-                      title="Jump to chapter"
-                      aria-haspopup="menu"
-                      aria-expanded={chaptersMenuOpen}
-                      onClick={() => setChaptersMenuOpen(o => !o)}
-                    >
-                      <span className="chapter-title-text">{ch.title || ''}</span>
-                    </button>
-                    {chaptersMenuOpen && (
-                      <div className="chapters-popup" role="menu">
-                        <div className="chapters-popup-header">Chapters</div>
-                        <div className="chapters-popup-list">
-                          {chapters.map((c, i) => (
-                            <button
-                              key={i}
-                              role="menuitemradio"
-                              aria-checked={i === activeIdx}
-                              ref={i === activeIdx ? activeChapterItemRef : null}
-                              className={`chapters-popup-item${i === activeIdx ? ' active' : ''}`}
-                              onClick={() => { jumpToChapter(c, i); setChaptersMenuOpen(false); }}
-                            >
-                              <span className="chapters-popup-time">{fmt(c.time)}</span>
-                              <span className="chapters-popup-title">{c.title}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <PlayerChaptersMenu
+                    ref={chaptersMenuRef}
+                    chapters={chapters}
+                    activeIdx={activeIdx}
+                    chaptersMenuOpen={chaptersMenuOpen}
+                    setChaptersMenuOpen={setChaptersMenuOpen}
+                    jumpToChapter={jumpToChapter}
+                    activeChapterItemRef={activeChapterItemRef}
+                  />
 
                   <div className="volume-control" title="Volume">
                     <svg className="vol-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -424,147 +393,20 @@ export default function PlayerView() {
                       </svg>
                     </button>
                     {menuOpen && (
-                      <div className="settings-panel" role="menu">
-                        {settingsPage === 'main' && (
-                          <>
-                            <button
-                              className="settings-row"
-                              role="menuitem"
-                              onClick={() => setSettingsPage('mode')}
-                            >
-                              <span className="settings-row-icon">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <rect x="3" y="5" width="18" height="14" rx="2" />
-                                  <circle cx="9" cy="11" r="2" />
-                                  <path d="m21 17-4-4-6 6" />
-                                </svg>
-                              </span>
-                              <span className="settings-row-label">View</span>
-                              <span className="settings-row-value">
-                                {mode[0].toUpperCase() + mode.slice(1)}
-                              </span>
-                              <svg className="settings-row-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <path d="m9 18 6-6-6-6" />
-                              </svg>
-                            </button>
-                            {transcriptParas && (
-                              <button
-                                className="settings-row"
-                                role="menuitemcheckbox"
-                                aria-checked={splitTranscript}
-                                onClick={toggleSplitTranscript}
-                              >
-                                <span className="settings-row-icon">
-                                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                    <rect x="3" y="5" width="18" height="14" rx="2" />
-                                    <path d="M14 5v14" />
-                                    <path d="M16.5 9.5h3" />
-                                    <path d="M16.5 12h3" />
-                                    <path d="M16.5 14.5h3" />
-                                  </svg>
-                                </span>
-                                <span className="settings-row-label">Show transcript</span>
-                                <span className={`settings-toggle${splitTranscript ? ' on' : ''}`} aria-hidden="true">
-                                  <span className="settings-toggle-knob" />
-                                </span>
-                              </button>
-                            )}
-                            <button
-                              className="settings-row"
-                              role="menuitemcheckbox"
-                              aria-checked={captionsOn}
-                              onClick={toggleCaptions}
-                            >
-                              <span className="settings-row-icon">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                                  <path d="M19 4H5a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3zM11 11.5H9.5v-.5h-2v2h2v-.5H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v2h2v-.5H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z" />
-                                </svg>
-                              </span>
-                              <span className="settings-row-label">Captions</span>
-                              <span className={`settings-toggle${captionsOn ? ' on' : ''}`} aria-hidden="true">
-                                <span className="settings-toggle-knob" />
-                              </span>
-                            </button>
-                            <button
-                              className="settings-row"
-                              role="menuitem"
-                              onClick={() => setSettingsPage('speed')}
-                            >
-                              <span className="settings-row-icon">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <path d="M12 22a10 10 0 1 0-10-10" />
-                                  <path d="m12 12 4-4" />
-                                </svg>
-                              </span>
-                              <span className="settings-row-label">Playback speed</span>
-                              <span className="settings-row-value">
-                                {rate === 1 ? 'Normal' : rate + '×'}
-                              </span>
-                              <svg className="settings-row-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <path d="m9 18 6-6-6-6" />
-                              </svg>
-                            </button>
-                          </>
-                        )}
-
-                        {settingsPage === 'mode' && (
-                          <>
-                            <button className="settings-sub-header" onClick={() => setSettingsPage('main')}>
-                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <path d="m15 18-6-6 6-6" />
-                              </svg>
-                              <span>View</span>
-                            </button>
-                            {['generated', 'real'].map(m => (
-                              <button
-                                key={m}
-                                role="menuitemradio"
-                                aria-checked={mode === m}
-                                className={`settings-option${mode === m ? ' selected' : ''}`}
-                                onClick={() => { setMode(m); setMenuOpen(false); }}
-                              >
-                                <span className="settings-option-check" aria-hidden="true">
-                                  {mode === m && (
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                      <path d="M20 6 9 17l-5-5" />
-                                    </svg>
-                                  )}
-                                </span>
-                                {m[0].toUpperCase() + m.slice(1)}
-                              </button>
-                            ))}
-                          </>
-                        )}
-
-                        {settingsPage === 'speed' && (
-                          <>
-                            <button className="settings-sub-header" onClick={() => setSettingsPage('main')}>
-                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                <path d="m15 18-6-6 6-6" />
-                              </svg>
-                              <span>Playback speed</span>
-                            </button>
-                            {[0.75, 1, 1.25, 1.5, 2].map(r => (
-                              <button
-                                key={r}
-                                role="menuitemradio"
-                                aria-checked={rate === r}
-                                className={`settings-option${rate === r ? ' selected' : ''}`}
-                                onClick={() => { changeRate(r); setMenuOpen(false); }}
-                              >
-                                <span className="settings-option-check" aria-hidden="true">
-                                  {rate === r && (
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                                      <path d="M20 6 9 17l-5-5" />
-                                    </svg>
-                                  )}
-                                </span>
-                                {r === 1 ? 'Normal' : r + '×'}
-                              </button>
-                            ))}
-                          </>
-                        )}
-                      </div>
+                      <PlayerSettings
+                        mode={mode}
+                        setMode={setMode}
+                        setMenuOpen={setMenuOpen}
+                        splitTranscript={splitTranscript}
+                        toggleSplitTranscript={toggleSplitTranscript}
+                        captionsOn={captionsOn}
+                        toggleCaptions={toggleCaptions}
+                        rate={rate}
+                        changeRate={changeRate}
+                        settingsPage={settingsPage}
+                        setSettingsPage={setSettingsPage}
+                        transcriptParas={transcriptParas}
+                      />
                     )}
                   </div>
                   <button
@@ -645,7 +487,7 @@ export default function PlayerView() {
         </div>
       </div>
 
-<div className="chapters-section">
+      <div className="chapters-section">
         <div className="player-heading">
           <h1 className="player-heading-title">{guide.title || ''}</h1>
           <div className="player-heading-meta">
@@ -657,106 +499,22 @@ export default function PlayerView() {
             </span>
           </div>
         </div>
-        <div className="chapters-header">
-          <div className="panel-toggle" role="tablist" aria-label="Panel">
-            <button
-              role="tab"
-              aria-selected={panel === 'chapters'}
-              className={`panel-tab${panel === 'chapters' ? ' active' : ''}`}
-              onClick={() => setPanel('chapters')}
-            >
-              Chapters
-            </button>
-            {guide.transcript && (
-              <button
-                role="tab"
-                aria-selected={panel === 'transcript'}
-                className={`panel-tab${panel === 'transcript' ? ' active' : ''}`}
-                onClick={() => setPanel('transcript')}
-              >
-                Transcript
-              </button>
-            )}
-            <button
-              role="tab"
-              aria-selected={panel === 'summary'}
-              className={`panel-tab${panel === 'summary' ? ' active' : ''}`}
-              onClick={() => setPanel('summary')}
-            >
-              Summary
-            </button>
-            <button
-              role="tab"
-              aria-selected={panel === 'notes'}
-              className={`panel-tab${panel === 'notes' ? ' active' : ''}`}
-              onClick={() => setPanel('notes')}
-            >
-              Notes
-            </button>
-          </div>
-        </div>
-        {panel === 'chapters' && (
-          <div className="chapters">
-            {chapters.map((c, i) => (
-              <div
-                key={i}
-                className={`chapter${i === activeIdx ? ' active' : ''}`}
-                onClick={() => jumpToChapter(c, i)}
-              >
-                <div className="time">{fmt(c.time)}</div>
-                <div className="label">{c.title}</div>
-              </div>
-            ))}
-          </div>
-        )}
-        {panel === 'summary' && (
-          <div className="summary-panel">
-            {guide.summary ? (
-              <p className="summary-body">{guide.summary}</p>
-            ) : (
-              <div className="summary-empty">No summary available for this guide yet.</div>
-            )}
-          </div>
-        )}
-        {panel === 'notes' && (
-          <div className="notes-panel">
-            <textarea
-              className="notes-textarea"
-              placeholder="Write your notes here…"
-              value={notes}
-              onChange={e => updateNotes(e.target.value)}
-              aria-label="Notes for this guide"
-            />
-          </div>
-        )}
-        {panel === 'transcript' && (
-          <div className="transcript" ref={transcriptScrollRef}>
-            {!guide ? (
-              <div className="transcript-empty">Loading transcript…</div>
-            ) : !transcriptParas ? (
-              <div className="transcript-empty">Transcript unavailable.</div>
-            ) : (
-              transcriptParas.map((p, pi) => (
-                <p key={pi} className="transcript-para">
-                  {p.words.map((w, wi) => {
-                    const isActive = w.index === activeWord;
-                    const isPast = w.index < activeWord;
-                    return (
-                      <span
-                        key={wi}
-                        ref={isActive ? activeWordRef : null}
-                        className={`tw${isActive ? ' active' : ''}${isPast ? ' past' : ''}`}
-                        onClick={() => seekToWord(w.index)}
-                      >
-                        {w.text}{wi < p.words.length - 1 ? ' ' : ''}
-                      </span>
-                    );
-                  })}
-                </p>
-              ))
-            )}
-          </div>
-        )}
+
+        <PlayerInfoPanel
+          panel={panel}
+          setPanel={setPanel}
+          chapters={chapters}
+          transcriptParas={transcriptParas}
+          guide={guide}
+          notes={notes}
+          updateNotes={updateNotes}
+          activeIdx={activeIdx}
+          jumpToChapter={jumpToChapter}
+          activeWord={activeWord}
+          onWordClick={seekToWord}
+          activeWordRef={activeWordRef}
+          fmt={fmt}
+        />
       </div>
 
     </>

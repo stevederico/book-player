@@ -6,6 +6,14 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.41.0
+
+  Extract PlayerChaptersMenu component
+  Extract PlayerInfoPanel component
+  Extract PlayerSettings component
+  Use TranscriptView in side pane
+  Shrink PlayerView size
+
 0.40.0
 
   Add favicon and PWA icon
