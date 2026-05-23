@@ -604,6 +604,143 @@ h1 {
 .yt-bar .view-mode-item:hover { color: #fff; background: rgba(255,255,255,0.08); }
 .yt-bar .view-mode-item.active { background: #fff; color: #000; }
 
+/* YouTube-style settings panel */
+.settings-menu { position: relative; display: inline-flex; align-items: center; }
+.yt-bar .settings-menu .gear-btn {
+  background: transparent;
+  border: none;
+  color: #fff;
+  width: 28px;
+  height: 28px;
+  opacity: .85;
+  transition: opacity .12s, color .12s, transform .12s;
+}
+.yt-bar .settings-menu .gear-btn:hover { opacity: 1; color: var(--accent-hot); transform: scale(1.05); }
+
+.settings-panel {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  min-width: 300px;
+  background: rgba(28, 28, 28, 0.92);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 6px 0;
+  z-index: 20;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.96);
+  font-family: 'Manrope', system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto auto;
+  align-items: center;
+  column-gap: 14px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+  padding: 12px 18px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.settings-row:hover { background: rgba(255, 255, 255, 0.06); }
+.settings-row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.95);
+}
+.settings-row-label {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.settings-row-value {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.9rem;
+}
+.settings-row-chevron {
+  color: rgba(255, 255, 255, 0.65);
+  margin-left: -4px;
+}
+
+.settings-toggle {
+  width: 36px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  position: relative;
+  transition: background 0.18s ease;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.settings-toggle.on { background: rgba(255, 255, 255, 0.92); }
+.settings-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #d6d6d6;
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+.settings-toggle.on .settings-toggle-knob {
+  transform: translateX(16px);
+  background: #ffffff;
+}
+
+.settings-sub-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+  padding: 13px 18px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 4px;
+  transition: background 0.12s ease;
+}
+.settings-sub-header:hover { background: rgba(255, 255, 255, 0.05); }
+
+.settings-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
+  padding: 11px 18px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.settings-option:hover { background: rgba(255, 255, 255, 0.06); }
+.settings-option-check {
+  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.95);
+}
+.settings-option.selected { color: #fff; }
+
 /* Comparison grid (unused in main flow but kept) */
 .comparison-header {
   font-size: 0.72rem;
@@ -939,7 +1076,7 @@ h1 {
   font-weight: 500;
   text-align: center;
   pointer-events: none;
-  z-index: 6;
+  z-index: 4;
   text-wrap: balance;
 }
 .hero:hover .cc-box,
