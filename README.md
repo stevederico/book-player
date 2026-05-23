@@ -24,7 +24,7 @@ npm run install-all     # installs root + backend workspace deps
 npm run start           # backend on :8000, Vite on :5173
 ```
 
-Open <http://localhost:5173/app/home>. The library shows every guide in the DB; click one to open the player.
+Open <http://localhost:5173/app/home> (root `/` redirects there). The library shows every guide in the DB; click one to open the player.
 
 <br />
 

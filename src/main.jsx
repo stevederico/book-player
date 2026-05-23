@@ -1,6 +1,6 @@
 import './assets/styles.css';
 import './assets/pg.css';
-import { Outlet } from 'react-router';
+import { Outlet, Navigate } from 'react-router';
 import { createSkateboardApp } from '@stevederico/skateboard-ui/App';
 import constants from './constants.json';
 import LibraryView from './components/LibraryView.jsx';
@@ -19,4 +19,5 @@ createSkateboardApp({
   constants,
   appRoutes,
   overrides: { layout: MinimalLayout },
+  landingPage: <Navigate to="/app/home" replace />,
 });
