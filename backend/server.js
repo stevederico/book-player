@@ -11,6 +11,8 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
 import { databaseManager } from "./adapters/manager.js";
+import { synthesize } from "./tts/kokoro.js";
+import { generateChapters } from "./tts/chapters.js";
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, mkdir, stat, readFileSync, writeFileSync, statSync } from 'node:fs';
@@ -929,6 +931,37 @@ app.get("/api/guides/:slug", async (c) => {
   }
 });
 
+// Text-to-speech — returns WAV bytes + per-word timestamps.
+// Returns JSON with base64-encoded audio so a single response carries both
+// the audio and the timing array. Caller decodes audio with `atob`.
+app.post("/api/tts", async (c) => {
+  try {
+    const body = await parseJsonBody(c);
+    if (!body) return c.json({ error: "Invalid request body" }, 400);
+    const text = typeof body.text === 'string' ? body.text.trim() : '';
+    if (!text) return c.json({ error: "Missing 'text'" }, 400);
+    if (text.length > 20000) return c.json({ error: "Text too long (max 20,000 chars)" }, 413);
+
+    const voice = typeof body.voice === 'string' ? body.voice : 'af_heart';
+    const speed = Number.isFinite(body.speed) ? Math.max(0.5, Math.min(2, body.speed)) : 1;
+
+    const t0 = Date.now();
+    const { audioWav, words, sampleRate, durationSec } = await synthesize(text, { voice, speed });
+    logger.info('TTS synthesize', { chars: text.length, ms: Date.now() - t0, durationSec, words: words.length });
+
+    return c.json({
+      audioBase64: audioWav.toString('base64'),
+      mimeType: 'audio/wav',
+      sampleRate,
+      durationSec,
+      words,
+    });
+  } catch (e) {
+    logger.error('TTS error', { error: e.message });
+    return c.json({ error: "Failed to synthesize" }, 500);
+  }
+});
+
 // Create a new guide. Open for now — see todo.md re: auth gating.
 // Audio is uploaded in a follow-up call to POST /api/guides/:slug/audio.
 app.post("/api/guides", async (c) => {
@@ -968,6 +1001,37 @@ app.post("/api/guides", async (c) => {
   } catch (e) {
     logger.error('Create guide error', { error: e.message });
     return c.json({ error: "Failed to create guide" }, 500);
+  }
+});
+
+// Generate chapters from the existing transcript + word timings via Claude.
+// Overwrites Guides.chapters_json. Requires the guide to have a transcript
+// and word timings (timing.words). Open for now — see todo.md re: auth.
+app.post("/api/guides/:slug/auto-chapters", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+
+    const guide = await db.getGuide(slug);
+    if (!guide) return c.json({ error: "Guide not found" }, 404);
+    if (!guide.transcript) return c.json({ error: "Guide has no transcript" }, 422);
+    const words = guide.timing?.words;
+    if (!Array.isArray(words) || !words.length) return c.json({ error: "Guide has no word timings" }, 422);
+
+    const t0 = Date.now();
+    const chapters = await generateChapters({
+      transcript: guide.transcript,
+      words,
+      durationSec: guide.duration || words[words.length - 1]?.t || 0,
+    });
+    if (!chapters.length) return c.json({ error: "No chapters generated" }, 502);
+
+    await db.upsertGuide({ ...guide, chapters });
+    logger.info('Auto-chapters generated', { slug, count: chapters.length, ms: Date.now() - t0 });
+    return c.json({ chapters });
+  } catch (e) {
+    logger.error('Auto-chapters error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: e.message || "Failed to generate chapters" }, 500);
   }
 });
 
