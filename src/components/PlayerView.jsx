@@ -15,6 +15,12 @@ import PlayerChaptersMenu from './PlayerChaptersMenu.jsx';
 import PlayerInfoPanel from './PlayerInfoPanel.jsx';
 import { useTheme } from '@stevederico/skateboard-ui/ThemeProvider';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@stevederico/skateboard-ui/shadcn/ui/sheet';
 
 export default function PlayerView() {
   const { slug = 'the-brand-age' } = useParams();
@@ -113,26 +119,27 @@ export default function PlayerView() {
   const scrubbingRef = useRef(false);
 
   useEffect(() => {
-    if (!menuOpen) return;
+    // Sheet handles outside-click + Esc on mobile via onOpenChange; don't double-fire.
+    if (!menuOpen || isMobile) return;
     function onDoc(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
     }
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
-  }, [menuOpen]);
+  }, [menuOpen, isMobile]);
 
   useEffect(() => {
     if (!menuOpen) setSettingsPage('main');
   }, [menuOpen]);
 
   useEffect(() => {
-    if (!chaptersMenuOpen) return;
+    if (!chaptersMenuOpen || isMobile) return;
     function onDoc(e) {
       if (chaptersMenuRef.current && !chaptersMenuRef.current.contains(e.target)) setChaptersMenuOpen(false);
     }
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
-  }, [chaptersMenuOpen]);
+  }, [chaptersMenuOpen, isMobile]);
 
   useEffect(() => {
     if (!chaptersMenuOpen) return;
@@ -787,7 +794,38 @@ export default function PlayerView() {
                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
                       </svg>
                     </button>
-                    {menuOpen && (
+                    {isMobile ? (
+                      <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+                        <SheetContent
+                          side="bottom"
+                          showCloseButton={false}
+                          className="max-h-[80dvh] bg-card border-border p-0 gap-0 rounded-t-2xl overflow-hidden"
+                        >
+                          <SheetHeader className="p-0">
+                            <SheetTitle className="sr-only">Settings</SheetTitle>
+                          </SheetHeader>
+                          <div className="overflow-y-auto scrollbar-thin">
+                            <PlayerSettings
+                              mode={mode}
+                              setMode={setMode}
+                              setMenuOpen={setMenuOpen}
+                              splitTranscript={splitTranscript}
+                              isMobile={isMobile}
+                              toggleSplitTranscript={toggleSplitTranscript}
+                              captionsOn={captionsOn}
+                              toggleCaptions={toggleCaptions}
+                              isDarkMode={isDarkMode}
+                              toggleTheme={toggleTheme}
+                              rate={rate}
+                              changeRate={changeRate}
+                              settingsPage={settingsPage}
+                              setSettingsPage={setSettingsPage}
+                              transcriptParas={transcriptParas}
+                            />
+                          </div>
+                        </SheetContent>
+                      </Sheet>
+                    ) : menuOpen ? (
                       <PlayerSettings
                         mode={mode}
                         setMode={setMode}
@@ -805,7 +843,7 @@ export default function PlayerView() {
                         setSettingsPage={setSettingsPage}
                         transcriptParas={transcriptParas}
                       />
-                    )}
+                    ) : null}
                   </div>
                   <button
                     type="button"

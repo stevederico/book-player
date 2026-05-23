@@ -1,10 +1,13 @@
 import React from 'react';
 
-const PANEL_CLS =
+const PANEL_DESKTOP_CLS =
   "absolute bottom-[calc(100%+10px)] right-0 min-w-[300px] bg-[var(--glass-bg)] backdrop-blur-[22px] backdrop-saturate-[1.6] border border-[var(--glass-border)] rounded-2xl py-1.5 px-0 z-20 shadow-[0_16px_48px_rgba(0,0,0,0.55)] text-foreground font-['Manrope',system-ui,sans-serif] overflow-hidden";
 
+const PANEL_MOBILE_CLS =
+  "py-2 px-0 text-foreground font-['Manrope',system-ui,sans-serif]";
+
 const ROW_CLS =
-  "grid grid-cols-[28px_1fr_auto_auto] items-center gap-x-3.5 w-full bg-transparent border-none text-inherit text-left py-3 px-[18px] text-[0.95rem] font-medium cursor-pointer transition-colors duration-150 hover:bg-foreground/5";
+  "grid grid-cols-[28px_1fr_auto_auto] items-center gap-x-3.5 w-full bg-transparent border-none text-inherit text-left py-3 px-[18px] text-[0.95rem] font-medium cursor-pointer transition-colors duration-150 hover:bg-foreground/5 min-h-[44px]";
 
 const SUB_HEADER_CLS =
   "flex items-center gap-2.5 w-full bg-transparent border-none text-inherit text-left py-3.5 px-[18px] text-[0.95rem] font-semibold cursor-pointer border-b border-[var(--glass-border)] mb-1 transition-colors duration-150 hover:bg-foreground/5";
@@ -49,7 +52,7 @@ export default function PlayerSettings({
   isMobile = false,
 }) {
   return (
-    <div className={PANEL_CLS} role="menu">
+    <div className={isMobile ? PANEL_MOBILE_CLS : PANEL_DESKTOP_CLS} role="menu">
       {settingsPage === 'main' && (
         <>
           <button className={ROW_CLS} role="menuitem" onClick={() => setSettingsPage('mode')}>

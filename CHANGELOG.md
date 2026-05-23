@@ -6,6 +6,13 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.62.0
+
+  Chapters bottom Sheet mobile
+  Settings bottom Sheet mobile
+  Gate outside-click effects
+  44px touch rows
+
 0.61.0
 
   PlayerView mobile split
