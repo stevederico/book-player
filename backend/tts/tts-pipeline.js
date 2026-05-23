@@ -298,7 +298,12 @@ export async function synthesizeGuide({ transcript, voice = 'af_heart', speed = 
   }
 
   return {
-    audioWav: concatWav(wavs, KOKORO_SAMPLE_RATE),
+    // fadeMs:0 — every seam in this pipeline is wav→silence→wav, so the
+    // crossfade is smoothing silence and only steals nominal time. Each
+    // crossfade lost ~25ms from the output, compounding to ~5s drift over a
+    // long guide and dragging the highlighter behind the audio. Butt-joining
+    // is safe here because all wav-to-wav transitions go through silence.
+    audioWav: concatWav(wavs, KOKORO_SAMPLE_RATE, { fadeMs: 0 }),
     words,
     totalDuration: Number(elapsed.toFixed(3)),
     sampleRate: KOKORO_SAMPLE_RATE,

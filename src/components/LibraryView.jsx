@@ -9,6 +9,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@stevederico/skateboard-ui/shadcn/ui/dialog';
+import { Spinner } from '@stevederico/skateboard-ui/shadcn/ui/spinner';
+import Plus from '@stevederico/skateboard-ui/icons/Plus';
+import X from '@stevederico/skateboard-ui/icons/X';
+import Trash2 from '@stevederico/skateboard-ui/icons/Trash2';
+import { toast } from '../lib/toast.jsx';
 
 function fmtDuration(sec) {
   if (!sec) return '';
@@ -46,7 +51,6 @@ export default function LibraryView() {
   const [sourceData, setSourceData] = useState({ title: '', author: '', transcript: '' });
   const [submitting, setSubmitting] = useState(false);
   const [submitLabel, setSubmitLabel] = useState('Create guide');
-  const [submitError, setSubmitError] = useState('');
 
   // After create, the modal flips into "progress" mode showing the GuideProgress stepper
   // so the user can kick off the remaining enrichment jobs (TTS, chapters, images, etc.)
@@ -56,7 +60,6 @@ export default function LibraryView() {
   // Delete confirmation state — when set, a modal asks the user to confirm.
   const [pendingDelete, setPendingDelete] = useState(null); // {slug, title} | null
   const [deletingSlug, setDeletingSlug] = useState(null);
-  const [deleteError, setDeleteError] = useState('');
 
   const urlInputRef = useRef(null);
   const textInputRef = useRef(null);
@@ -76,7 +79,6 @@ export default function LibraryView() {
     const { slug } = pendingDelete;
     const prev = guides;
     setDeletingSlug(slug);
-    setDeleteError('');
     setGuides(gs => gs.filter(x => x.slug !== slug));
     try {
       const res = await fetch(`/api/guides/${encodeURIComponent(slug)}`, { method: 'DELETE' });
@@ -88,7 +90,7 @@ export default function LibraryView() {
     } catch (err) {
       console.error('Delete guide failed', err);
       setGuides(prev);
-      setDeleteError(err.message || 'Could not delete that guide.');
+      toast.error(err.message || 'Could not delete that guide.');
     } finally {
       setDeletingSlug(null);
     }
@@ -157,7 +159,6 @@ export default function LibraryView() {
     setFetching(false);
     setSourceData({ title: '', author: '', transcript: '' });
     setCreatedGuide(null);
-    setSubmitError('');
     setSubmitLabel('Create guide');
   }
 
@@ -221,13 +222,13 @@ export default function LibraryView() {
   async function handleFetchUrl() {
     if (!sourceUrl.trim()) return;
     setFetching(true);
-    setSubmitError('');
     try {
       const data = await fetchFromUrl(sourceUrl);
       setSourceData(data);
       setPastedText(data.transcript);
     } catch (err) {
-      setSubmitError(err.message || 'Could not fetch the page.');
+      console.error('Fetch URL failed', err);
+      toast.error(err.message || 'Could not fetch the page.');
     } finally {
       setFetching(false);
     }
@@ -245,7 +246,6 @@ export default function LibraryView() {
     const form = e.currentTarget;
 
     setSubmitting(true);
-    setSubmitError('');
 
     try {
       let data = { ...sourceData };
@@ -300,7 +300,8 @@ export default function LibraryView() {
       setModalOpen(false);
       resetCreateForm();
     } catch (err) {
-      setSubmitError(err.message || 'Something went wrong');
+      console.error('Create guide failed', err);
+      toast.error(err.message || 'Something went wrong');
       setSubmitLabel('Create guide');
     } finally {
       setSubmitting(false);
@@ -335,9 +336,7 @@ export default function LibraryView() {
           aria-label="Create new guide"
           className="justify-self-end inline-flex items-center gap-2 bg-[var(--accent)] text-white font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer shadow-[0_6px_20px_rgba(var(--accent-glow),0.35)] transition-[transform,box-shadow,background-color] duration-150 hover:bg-[var(--accent-hot)] hover:-translate-y-px hover:shadow-[0_10px_26px_rgba(var(--accent-glow),0.5)] active:translate-y-0"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
+          <Plus size={16} strokeWidth={2.4} aria-hidden="true" />
           <span className="hidden sm:inline">Create</span>
         </button>
       </header>
@@ -414,17 +413,11 @@ export default function LibraryView() {
                   onClick={e => {
                     e.preventDefault();
                     e.stopPropagation();
-                    setDeleteError('');
                     setPendingDelete({ slug: g.slug, title: g.title });
                   }}
                   className="absolute top-2 right-2 size-8 inline-flex items-center justify-center bg-black/70 text-white border-none rounded-lg cursor-pointer opacity-0 -translate-y-0.5 transition-[opacity,transform,background-color] duration-150 backdrop-blur-[6px] z-[2] group-hover/card:opacity-100 group-hover/card:translate-y-0 focus-visible:opacity-100 focus-visible:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white focus-visible:outline-offset-2 hover:bg-red-800/95"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M3 6h18" />
-                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                    <path d="M10 11v6M14 11v6" />
-                  </svg>
+                  <Trash2 size={16} aria-hidden="true" />
                 </button>
               </div>
               <h3 className="font-['Bricolage_Grotesque'] font-extrabold text-[1.4rem] tracking-[-0.025em] leading-[1.15] mt-0 mb-1 text-foreground line-clamp-2">{g.title}</h3>
@@ -462,7 +455,7 @@ export default function LibraryView() {
                 aria-label="Close"
                 className="bg-transparent border-none text-muted-foreground cursor-pointer p-1 rounded-md transition-colors hover:text-foreground hover:bg-muted"
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                <X size={20} aria-hidden="true" />
               </button>
             </DialogHeader>
             <div className="px-5 py-4 flex flex-col gap-3.5 sm:max-h-[70vh] flex-1 overflow-y-auto">
@@ -521,11 +514,6 @@ export default function LibraryView() {
                 </div>
               )}
 
-              {submitError ? (
-                <div role="alert" className="text-destructive text-[13px] mt-2">
-                  {submitError}
-                </div>
-              ) : null}
               </>
               )}
             </div>
@@ -556,8 +544,9 @@ export default function LibraryView() {
                 <button
                   type="submit"
                   disabled={submitting || (sourceMode === 'url' ? !sourceUrl.trim() : !pastedText.trim())}
-                  className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-[var(--accent)] text-white shadow-[0_6px_20px_rgba(var(--accent-glow),0.35)] transition-colors hover:bg-[var(--accent-hot)] disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-2 font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-[var(--accent)] text-white shadow-[0_6px_20px_rgba(var(--accent-glow),0.35)] transition-colors hover:bg-[var(--accent-hot)] disabled:opacity-60 disabled:cursor-not-allowed"
                 >
+                  {submitting && <Spinner className="size-4 text-white" />}
                   {submitLabel}
                 </button>
               )}
@@ -585,18 +574,13 @@ export default function LibraryView() {
               disabled={!!deletingSlug}
               className="bg-transparent border-none text-muted-foreground cursor-pointer p-1 rounded-md transition-colors hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              <X size={20} aria-hidden="true" />
             </button>
           </DialogHeader>
           <div className="px-5 py-4 flex flex-col gap-3.5">
             <DialogDescription className="m-0 text-foreground text-sm">
               <strong>{pendingDelete?.title}</strong> will be permanently removed. This can't be undone.
             </DialogDescription>
-            {deleteError ? (
-              <div role="alert" className="text-destructive text-[13px] mt-3">
-                {deleteError}
-              </div>
-            ) : null}
           </div>
           <DialogFooter className="flex-row justify-end gap-2.5 pt-3.5 pb-4 px-5 border-t border-border bg-background">
             <button
@@ -611,8 +595,9 @@ export default function LibraryView() {
               type="button"
               onClick={confirmDelete}
               disabled={!!deletingSlug}
-              className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-[#b91c1c] text-white transition-colors hover:bg-[#991b1b] disabled:opacity-60 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-[#b91c1c] text-white transition-colors hover:bg-[#991b1b] disabled:opacity-60 disabled:cursor-not-allowed"
             >
+              {deletingSlug && <Spinner className="size-4 text-white" />}
               {deletingSlug ? 'Deleting…' : 'Delete'}
             </button>
           </DialogFooter>

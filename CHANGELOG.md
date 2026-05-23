@@ -6,6 +6,14 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.72.0
+
+  ⭐ Fix highlighter drift
+  Drop concat crossfade
+  Lead highlight 270ms
+  Regen founder-mode
+  Fix Plus import
+
 0.71.0
 
   Add text size setting

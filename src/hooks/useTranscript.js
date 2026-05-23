@@ -53,7 +53,7 @@ export function useTranscript(guide, duration, current, captionsOn = true) {
     const offset = guide?.timingOffset || 0;
     // Lead audio by ~120ms so the highlight lands as the word is heard,
     // not after. Compensates for output latency + perceptual lag.
-    const HIGHLIGHT_LEAD = 0.20;
+    const HIGHLIGHT_LEAD = 0.27;
     const t = current - offset + HIGHLIGHT_LEAD;
     const w = wordStartTimes
       ? wordIndexFromTimes(wordStartTimes, t)
