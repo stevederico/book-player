@@ -6,6 +6,12 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.68.0
+
+  Add breath padding
+  Preserve paragraph breaks
+  Regen good-writing-3
+
 0.67.0
 
   Fix word highlighter

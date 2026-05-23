@@ -6,7 +6,15 @@
 // from a background promise — emits progress via the `onProgress` callback
 // so the HTTP layer can update Guides.jobs_json without blocking.
 
-import { synthesize, concatWav, KOKORO_SAMPLE_RATE } from './kokoro.js';
+import { synthesize, concatWav, silenceWav, KOKORO_SAMPLE_RATE } from './kokoro.js';
+
+// Explicit breath padding inserted between chunks. Kokoro pauses ~150ms for
+// `.` mid-chunk via espeak's prosody, but cross-chunk boundaries get none —
+// the next chunk starts cold and the crossfade in `concatWav` butt-joins
+// what should be a breath. These values target natural human cadence:
+//   sentence: ~280ms (on top of Kokoro's intra-chunk ~150ms)
+//   paragraph: ~700ms (full breath between thoughts)
+const PAUSE_MS = { sentence: 280, paragraph: 700, none: 0 };
 
 /**
  * Synthesize one chunk, and if Kokoro complains about input length
@@ -55,38 +63,59 @@ async function synthesizeWithFallback(text, opts) {
 const MAX_CHUNK_CHARS = 380;
 
 /**
- * Split text into chunks of at most `maxChars` characters, breaking only at
- * sentence boundaries (period/!/? followed by whitespace). Falls back to a
- * hard split if any single sentence is longer than `maxChars`.
+ * Split text into chunks of at most `maxChars` characters, breaking at
+ * paragraph boundaries first (two-or-more newlines), then at sentence
+ * boundaries (period/!/? followed by whitespace). Falls back to a hard
+ * split if any single sentence is longer than `maxChars`.
+ *
+ * Returns chunks tagged with `breakAfter` so the pipeline can inject the
+ * right amount of silence between them — `'paragraph'` for the last chunk
+ * of a paragraph, `'sentence'` for mid-paragraph chunk seams, `'none'` for
+ * the very last chunk.
  *
  * @param {string} text
  * @param {number} maxChars
- * @returns {string[]}
+ * @returns {Array<{text: string, breakAfter: 'paragraph'|'sentence'|'none'}>}
  */
 function chunkBySentence(text, maxChars = MAX_CHUNK_CHARS) {
-  const sentences = text
-    .replace(/\s+/g, ' ')
-    .split(/(?<=[.!?])\s+/)
-    .filter(Boolean);
-
+  const paragraphs = text.split(/\n\s*\n+/).map(p => p.trim()).filter(Boolean);
   const chunks = [];
-  let buf = '';
-  for (const s of sentences) {
-    if (s.length > maxChars) {
-      if (buf) { chunks.push(buf); buf = ''; }
-      for (let i = 0; i < s.length; i += maxChars) {
-        chunks.push(s.slice(i, i + maxChars));
+
+  paragraphs.forEach((para, pIdx) => {
+    const sentences = para
+      .replace(/\s+/g, ' ')
+      .split(/(?<=[.!?])\s+/)
+      .filter(Boolean);
+
+    const paraChunks = [];
+    let buf = '';
+    for (const s of sentences) {
+      if (s.length > maxChars) {
+        if (buf) { paraChunks.push(buf); buf = ''; }
+        for (let i = 0; i < s.length; i += maxChars) {
+          paraChunks.push(s.slice(i, i + maxChars));
+        }
+        continue;
       }
-      continue;
+      if (buf.length + s.length + 1 > maxChars) {
+        paraChunks.push(buf);
+        buf = s;
+      } else {
+        buf = buf ? `${buf} ${s}` : s;
+      }
     }
-    if (buf.length + s.length + 1 > maxChars) {
-      chunks.push(buf);
-      buf = s;
-    } else {
-      buf = buf ? `${buf} ${s}` : s;
-    }
-  }
-  if (buf) chunks.push(buf);
+    if (buf) paraChunks.push(buf);
+
+    paraChunks.forEach((t, i) => {
+      const isLastInPara = i === paraChunks.length - 1;
+      const isLastPara = pIdx === paragraphs.length - 1;
+      const breakAfter = isLastInPara
+        ? (isLastPara ? 'none' : 'paragraph')
+        : 'sentence';
+      chunks.push({ text: t, breakAfter });
+    });
+  });
+
   return chunks;
 }
 
@@ -113,13 +142,20 @@ export async function synthesizeGuide({ transcript, voice = 'af_heart', speed = 
   let elapsed = 0;
   let done = 0;
   for (let i = 0; i < chunks.length; i++) {
-    const result = await synthesizeWithFallback(chunks[i], { voice, speed });
+    const chunk = chunks[i];
+    const result = await synthesizeWithFallback(chunk.text, { voice, speed });
     for (const segment of result) {
       for (const w of segment.words) {
         words.push({ w: w.w, t: Number((w.t + elapsed).toFixed(3)) });
       }
       wavs.push(segment.audioWav);
       elapsed += segment.durationSec;
+    }
+    const pauseMs = PAUSE_MS[chunk.breakAfter] ?? 0;
+    if (pauseMs > 0) {
+      const sec = pauseMs / 1000;
+      wavs.push(silenceWav(sec, KOKORO_SAMPLE_RATE));
+      elapsed += sec;
     }
     done += 1;
     onProgress?.({ chunksDone: done, chunksTotal });

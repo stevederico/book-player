@@ -185,6 +185,21 @@ export function concatWav(wavBuffers, sampleRate, { fadeMs = 25 } = {}) {
 export const KOKORO_SAMPLE_RATE = SAMPLE_RATE;
 
 /**
+ * Build a silent WAV buffer of the given duration. Used by the pipeline to
+ * insert explicit breaths at sentence / paragraph seams that the chunker
+ * would otherwise butt-join (Kokoro emits ~150ms of prosodic pause for `.`
+ * mid-chunk; cross-chunk boundaries get none without padding).
+ *
+ * @param {number} durationSec - Length of silence in seconds
+ * @param {number} sampleRate - Sample rate (should match audio chunks)
+ * @returns {Buffer} WAV file bytes
+ */
+export function silenceWav(durationSec, sampleRate = SAMPLE_RATE) {
+  const n = Math.max(0, Math.round(durationSec * sampleRate));
+  return floatToWav(new Float32Array(n), sampleRate);
+}
+
+/**
  * Pick the style vector matching the current input length.
  *
  * Kokoro stores 510 style vectors per voice; the one at index `min(max(L-2, 0), 509)`
