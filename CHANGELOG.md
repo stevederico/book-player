@@ -6,6 +6,11 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.59.0
+
+  Add useIsMobile hook
+  Phase B foundation
+
 0.58.0
 
   Delete pg.css
