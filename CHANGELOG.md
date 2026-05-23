@@ -6,6 +6,9 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.39.1
+  Remove root redirect
+
 0.39.0
   Fix constants branding and legal pages
   Redirect root to library
