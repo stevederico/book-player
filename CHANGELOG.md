@@ -6,6 +6,13 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.50.0
+
+  Convert LibraryView shell
+  Extract animations CSS
+  Drop top-nav grid CSS
+  Drop card status CSS
+
 0.49.0
 
   Convert TranscriptView Tailwind

@@ -1,0 +1,25 @@
+/* Keyframes used by Tailwind arbitrary animate-[...] utilities across the app.
+   Component CSS lives in JSX as Tailwind utilities; only the @keyframes definitions
+   that Tailwind cannot express inline live here. */
+
+@keyframes status-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(250, 204, 21, 0.65); }
+  70%  { box-shadow: 0 0 0 8px rgba(250, 204, 21, 0);    }
+  100% { box-shadow: 0 0 0 0   rgba(250, 204, 21, 0);    }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes pop-in {
+  from { transform: translateY(8px) scale(0.98); opacity: 0; }
+  to   { transform: none;                         opacity: 1; }
+}
+
+@keyframes feedback-pop {
+  0%   { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
+  20%  { opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.4); opacity: 0; }
+}

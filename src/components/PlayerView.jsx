@@ -29,7 +29,7 @@ export default function PlayerView() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState('main');
   const [feedback, setFeedback] = useState(null);
-  const [panel, setPanel] = useState('notes');
+  const [panel, setPanel] = useState('summary');
   const [captionsOn, setCaptionsOn] = useState(() => {
     try { return localStorage.getItem('pg.cc') !== '0'; } catch { return true; }
   });
@@ -857,14 +857,17 @@ export default function PlayerView() {
       <div className="chapters-section">
         <div className="player-heading">
           <h1 className="player-heading-title">{guide.title || ''}</h1>
-          <div className="card-meta-row">
-            <div className="card-avatar" aria-hidden="true">
+          <div className="flex gap-2.5 items-start">
+            <div
+              aria-hidden="true"
+              className="size-9 rounded-full bg-gradient-to-br from-[var(--accent)] to-[#b6291f] flex items-center justify-center text-white font-extrabold font-['Bricolage_Grotesque'] text-[0.95rem] shrink-0"
+            >
               {(guide.author || '?').split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase()}
             </div>
-            <div className="card-text">
-              {guide.author && <div className="card-sub">{guide.author}</div>}
+            <div className="min-w-0">
+              {guide.author && <div className="text-[0.82rem] leading-snug font-medium text-foreground mb-0.5">{guide.author}</div>}
               {(guide.date || guide.publishedAt) && (
-                <div className="card-meta">{guide.date || guide.publishedAt}</div>
+                <div className="text-[0.82rem] leading-snug font-medium text-muted-foreground">{guide.date || guide.publishedAt}</div>
               )}
             </div>
           </div>

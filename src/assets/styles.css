@@ -1,4 +1,5 @@
 @import "@stevederico/skateboard-ui/styles.css";
+@import "./animations.css";
 
 @source '../../node_modules/@stevederico/skateboard-ui';
 

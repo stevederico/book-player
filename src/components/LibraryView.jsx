@@ -306,20 +306,32 @@ export default function LibraryView() {
 
   return (
     <>
-      <header className="top-nav">
-        <div className="brand">
-          <span className="brand-mark"></span>
-          <span className="brand-name">Book Player</span>
+      <header className="sticky top-0 z-30 bg-[var(--nav-bg)] backdrop-blur-md backdrop-saturate-150 border-b border-border grid grid-cols-[auto_1fr_auto] items-center gap-6 py-3.5 px-7">
+        <div className="flex items-center gap-2.5">
+          <span
+            aria-hidden="true"
+            className="relative inline-flex size-[26px] items-center justify-center rounded-[7px] bg-[var(--accent)] shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_6px_20px_rgba(var(--accent-glow),0.35)]"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+              <line x1="0" y1="14" x2="14" y2="0" stroke="white" strokeWidth="1" />
+            </svg>
+          </span>
+          <span className="font-['Bricolage_Grotesque'] font-extrabold text-[1.1rem] tracking-[-0.03em]">Book Player</span>
         </div>
-        <div className="nav-search">
+        <div className="max-w-[560px] w-full justify-self-center">
           <input
             type="search"
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Search guides"
+            className="w-full bg-card border border-border text-foreground px-4 py-2.5 rounded-full text-[0.92rem] outline-none transition-colors placeholder:text-muted-foreground focus:border-[var(--accent)] focus:bg-muted"
           />
         </div>
-        <button className="btn-create" onClick={() => { resetCreateForm(); setModalOpen(true); }} aria-label="Create new guide">
+        <button
+          onClick={() => { resetCreateForm(); setModalOpen(true); }}
+          aria-label="Create new guide"
+          className="inline-flex items-center gap-2 bg-[var(--accent)] text-white font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer shadow-[0_6px_20px_rgba(var(--accent-glow),0.35)] transition-[transform,box-shadow,background-color] duration-150 hover:bg-[var(--accent-hot)] hover:-translate-y-px hover:shadow-[0_10px_26px_rgba(var(--accent-glow),0.5)] active:translate-y-0"
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
           </svg>
@@ -328,12 +340,12 @@ export default function LibraryView() {
       </header>
 
       {filtered.length === 0 ? (
-        <div className="empty">
-          <div className="empty-title">No guides yet.</div>
-          <div className="empty-sub">Tap <strong>Create</strong> to add one.</div>
+        <div className="py-20 px-7 text-center">
+          <div className="font-['Bricolage_Grotesque'] font-extrabold text-[1.4rem] mb-1.5">No guides yet.</div>
+          <div className="text-muted-foreground">Tap <strong>Create</strong> to add one.</div>
         </div>
       ) : (
-        <main className="grid">
+        <main className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-[18px] gap-y-7 px-7 pt-5 pb-[60px]">
           {filtered.map(g => {
             const pipe = g.jobs?.pipeline;
             const processing = pipe?.status === 'running';
@@ -358,28 +370,43 @@ export default function LibraryView() {
             return (
             <a
               key={g.slug}
-              className={`card${processing ? ' is-processing' : ''}${failed ? ' is-failed' : ''}`}
               href={`/app/${encodeURIComponent(g.slug)}`}
               target="_blank"
               rel="noopener noreferrer"
               {...cardProps}
+              data-processing={processing || undefined}
+              className="group/card bg-transparent border-none p-2.5 -m-2.5 rounded-2xl text-left cursor-pointer text-inherit flex flex-col no-underline transition-colors duration-150 hover:bg-muted data-[processing]:opacity-85"
             >
-              <div className="card-thumb">
-                {g.thumbnail && <img loading="lazy" alt="" src={resolveThumb(g.thumbnail)} />}
-                {g.duration ? <span className="duration">{fmtDuration(g.duration)}</span> : null}
+              <div className="relative w-full aspect-video bg-gradient-to-br from-muted to-card rounded-xl overflow-hidden transition-[transform,box-shadow] duration-200 group-hover/card:-translate-y-0.5 group-hover/card:shadow-[0_12px_30px_rgba(0,0,0,0.4)] group-data-[processing]/card:pointer-events-none mb-3">
+                {g.thumbnail && (
+                  <img
+                    loading="lazy"
+                    alt=""
+                    src={resolveThumb(g.thumbnail)}
+                    className="w-full h-full object-cover block transition-transform duration-[350ms] group-hover/card:scale-[1.04]"
+                  />
+                )}
+                {g.duration ? (
+                  <span className="absolute right-2 bottom-2 bg-black/85 text-white tabular-nums text-[0.74rem] font-semibold px-1.5 py-0.5 rounded">
+                    {fmtDuration(g.duration)}
+                  </span>
+                ) : null}
                 {processing && (
-                  <span className="status-badge status-processing" role="status" aria-live="polite">
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    className="absolute left-2.5 right-2.5 bottom-2.5 text-[0.72rem] font-semibold text-center px-2.5 py-1.5 rounded-md backdrop-blur-[6px] bg-black/65 text-white before:content-[''] before:inline-block before:size-2.5 before:mr-2 before:rounded-full before:bg-[#facc15] before:align-middle before:animate-[status-pulse_1.4s_ease-out_infinite]"
+                  >
                     {processingLabel}
                   </span>
                 )}
                 {failed && (
-                  <span className="status-badge status-failed" role="alert">
+                  <span role="alert" className="absolute left-2.5 right-2.5 bottom-2.5 text-[0.72rem] font-semibold text-center px-2.5 py-1.5 rounded-md backdrop-blur-[6px] bg-red-900/95 text-white">
                     Failed: {pipe.error || 'unknown error'}
                   </span>
                 )}
                 <button
                   type="button"
-                  className="card-delete"
                   aria-label={`Delete ${g.title}`}
                   onClick={e => {
                     e.preventDefault();
@@ -387,6 +414,7 @@ export default function LibraryView() {
                     setDeleteError('');
                     setPendingDelete({ slug: g.slug, title: g.title });
                   }}
+                  className="absolute top-2 right-2 size-8 inline-flex items-center justify-center bg-black/70 text-white border-none rounded-lg cursor-pointer opacity-0 -translate-y-0.5 transition-[opacity,transform,background-color] duration-150 backdrop-blur-[6px] z-[2] group-hover/card:opacity-100 group-hover/card:translate-y-0 focus-visible:opacity-100 focus-visible:translate-y-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white focus-visible:outline-offset-2 hover:bg-red-800/95"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M3 6h18" />
@@ -396,12 +424,14 @@ export default function LibraryView() {
                   </svg>
                 </button>
               </div>
-              <h3 className="card-title">{g.title}</h3>
-              <div className="card-meta-row">
-                <div className="card-avatar" aria-hidden="true">{initials(g.author)}</div>
-                <div className="card-text">
-                  {g.author && <div className="card-sub">{g.author}</div>}
-                  {g.date && <div className="card-meta">{g.date}</div>}
+              <h3 className="font-['Bricolage_Grotesque'] font-extrabold text-[1.4rem] tracking-[-0.025em] leading-[1.15] mt-0 mb-1 text-foreground line-clamp-2">{g.title}</h3>
+              <div className="flex gap-2.5 items-start">
+                <div aria-hidden="true" className="size-9 rounded-full bg-gradient-to-br from-[var(--accent)] to-[#b6291f] flex items-center justify-center text-white font-extrabold font-['Bricolage_Grotesque'] text-[0.95rem] shrink-0">
+                  {initials(g.author)}
+                </div>
+                <div className="min-w-0">
+                  {g.author && <div className="text-[0.82rem] leading-snug font-medium text-foreground mb-0.5 hover:text-[var(--accent-hot)]">{g.author}</div>}
+                  {g.date && <div className="text-[0.82rem] leading-snug font-medium text-muted-foreground">{g.date}</div>}
                 </div>
               </div>
             </a>
