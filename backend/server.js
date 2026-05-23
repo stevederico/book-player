@@ -6,8 +6,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { secureHeaders } from 'hono/secure-headers'
 import { cors } from 'hono/cors'
 import Stripe from "stripe";
-import jwt from "jsonwebtoken";
-import bcrypt from "bcryptjs";
+import { compare as legacyBcryptCompare } from "./vendor/legacy-bcrypt.js";
 import crypto from "crypto";
 
 import { databaseManager } from "./adapters/manager.js";
@@ -459,6 +458,7 @@ const db = {
   updateUser: (query, update) => databaseManager.updateUser(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, query, update),
   findAuth: (query) => databaseManager.findAuth(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, query),
   insertAuth: (authData) => databaseManager.insertAuth(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, authData),
+  updateAuth: (query, update) => databaseManager.updateAuth(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, query, update),
   findWebhookEvent: (eventId) => databaseManager.findWebhookEvent(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, eventId),
   insertWebhookEvent: (eventId, eventType, processedAt) => databaseManager.insertWebhookEvent(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, eventId, eventType, processedAt),
   listGuides: (filters) => databaseManager.listGuides(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, filters),
@@ -534,32 +534,61 @@ app.use('*', async (c, next) => {
 
 const tokenExpirationDays = 30;
 
+const scryptAsync = promisify(crypto.scrypt);
+const SCRYPT_KEYLEN = 64;
+const SCRYPT_SALTLEN = 16;
+
 /**
- * Hash password using bcrypt with 10 salt rounds
+ * Hash password using node:crypto scrypt
  *
- * Generates salt and hashes password for secure storage. Uses bcrypt's
- * automatic salt generation.
+ * Format: `scrypt$<base64url salt>$<base64url key>`. New hashes always use
+ * scrypt; legacy bcrypt hashes (prefix `$2`) are verified via the dispatch
+ * in verifyPassword but never created.
  *
  * @async
  * @param {string} password - Plain text password to hash
- * @returns {Promise<string>} Bcrypt hashed password
- * @throws {Error} If bcrypt hashing fails
+ * @returns {Promise<string>} Scrypt hash string
  */
 async function hashPassword(password) {
-  const salt = await bcrypt.genSalt(10);
-  return await bcrypt.hash(password, salt);
+  const salt = crypto.randomBytes(SCRYPT_SALTLEN);
+  const key = await scryptAsync(password, salt, SCRYPT_KEYLEN);
+  return `scrypt$${salt.toString('base64url')}$${key.toString('base64url')}`;
 }
 
 /**
- * Verify password against bcrypt hash using timing-safe comparison
+ * Verify password against stored hash (scrypt or legacy bcrypt)
+ *
+ * Dispatches on stored hash prefix: `scrypt$` → native scrypt verify;
+ * `$2` → bcryptjs (legacy users predating the scrypt migration).
  *
  * @async
  * @param {string} password - Plain text password to verify
- * @param {string} hash - Bcrypt hash to compare against
- * @returns {Promise<boolean>} True if password matches hash
+ * @param {string} stored - Stored hash (scrypt or bcrypt format)
+ * @returns {Promise<boolean>} True if password matches stored hash
  */
-async function verifyPassword(password, hash) {
-  return await bcrypt.compare(password, hash);
+async function verifyPassword(password, stored) {
+  if (typeof stored !== 'string') return false;
+  if (stored.startsWith('scrypt$')) {
+    const [, saltB64, keyB64] = stored.split('$');
+    const salt = Buffer.from(saltB64, 'base64url');
+    const expected = Buffer.from(keyB64, 'base64url');
+    const candidate = await scryptAsync(password, salt, SCRYPT_KEYLEN);
+    return expected.length === candidate.length && crypto.timingSafeEqual(expected, candidate);
+  }
+  if (stored.startsWith('$2')) {
+    return await legacyBcryptCompare(password, stored);
+  }
+  return false;
+}
+
+/**
+ * Whether a stored hash should be migrated to scrypt on next successful login
+ *
+ * @param {string} stored - Stored hash
+ * @returns {boolean} True if the hash is in legacy bcrypt format
+ */
+function needsRehash(stored) {
+  return typeof stored === 'string' && !stored.startsWith('scrypt$');
 }
 
 /**
@@ -569,6 +598,56 @@ async function verifyPassword(password, hash) {
  */
 function tokenExpireTimestamp(){
   return Math.floor(Date.now() / 1000) + tokenExpirationDays * 24 * 60 * 60; // 30 days from now
+}
+
+/**
+ * Sign an HS256 JWT using node:crypto HMAC-SHA256
+ *
+ * Produces a token byte-compatible with jsonwebtoken: header
+ * {"alg":"HS256","typ":"JWT"} followed by the payload, joined and signed
+ * over `base64url(header).base64url(payload)`.
+ *
+ * @param {Object} payload - Payload to encode (must include exp)
+ * @param {string} secret - HMAC signing secret
+ * @returns {string} Compact JWT string
+ */
+function jwtSign(payload, secret) {
+  const head = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', secret).update(`${head}.${body}`).digest('base64url');
+  return `${head}.${body}.${sig}`;
+}
+
+/**
+ * Verify an HS256 JWT and return its payload
+ *
+ * Compatible with tokens issued by jsonwebtoken (same algorithm, same secret).
+ * Throws an Error with name === 'TokenExpiredError' for expired tokens, or a
+ * generic Error for malformed/invalid signatures.
+ *
+ * @param {string} token - JWT string to verify
+ * @param {string} secret - HMAC verification secret
+ * @returns {Object} Decoded payload
+ * @throws {Error} If token is malformed, signature invalid, or expired
+ */
+function jwtVerify(token, secret) {
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new Error('Invalid token');
+  const [head, body, sig] = parts;
+  if (!head || !body || !sig) throw new Error('Invalid token');
+  const expected = crypto.createHmac('sha256', secret).update(`${head}.${body}`).digest('base64url');
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expected);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    throw new Error('Invalid signature');
+  }
+  const payload = JSON.parse(Buffer.from(body, 'base64url').toString());
+  if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
+    const err = new Error('Token expired');
+    err.name = 'TokenExpiredError';
+    throw err;
+  }
+  return payload;
 }
 
 /**
@@ -591,10 +670,7 @@ async function generateToken(userID) {
     const exp = tokenExpireTimestamp();
     const payload = { userID, exp };
 
-    return jwt.sign(payload, JWT_SECRET, {
-      algorithm: 'HS256',
-      header: { alg: "HS256", typ: "JWT" }
-    });
+    return jwtSign(payload, JWT_SECRET);
   } catch (error) {
     logger.error('Token generation error', { error: error.message });
     throw error;
@@ -626,7 +702,7 @@ async function authMiddleware(c, next) {
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
+    const payload = jwtVerify(token, JWT_SECRET);
     // Normalize userID to string for consistent Map key usage (CSRF, sessions)
     const normalizedUserID = String(payload.userID);
     c.set('userID', normalizedUserID);
@@ -962,6 +1038,37 @@ app.post("/api/tts", async (c) => {
   }
 });
 
+// Generate chapters from the existing transcript + word timings via Grok.
+// Overwrites Guides.chapters_json. Requires the guide to have a transcript
+// and word timings (timing.words). Open for now — see todo.md re: auth.
+app.post("/api/guides/:slug/auto-chapters", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+
+    const guide = await db.getGuide(slug);
+    if (!guide) return c.json({ error: "Guide not found" }, 404);
+    if (!guide.transcript) return c.json({ error: "Guide has no transcript" }, 422);
+    const words = guide.timing?.words;
+    if (!Array.isArray(words) || !words.length) return c.json({ error: "Guide has no word timings" }, 422);
+
+    const t0 = Date.now();
+    const chapters = await generateChapters({
+      transcript: guide.transcript,
+      words,
+      durationSec: guide.duration || words[words.length - 1]?.t || 0,
+    });
+    if (!chapters.length) return c.json({ error: "No chapters generated" }, 502);
+
+    await db.upsertGuide({ ...guide, chapters });
+    logger.info('Auto-chapters generated', { slug, count: chapters.length, ms: Date.now() - t0 });
+    return c.json({ chapters });
+  } catch (e) {
+    logger.error('Auto-chapters error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: e.message || "Failed to generate chapters" }, 500);
+  }
+});
+
 // Create a new guide. Open for now — see todo.md re: auth gating.
 // Audio is uploaded in a follow-up call to POST /api/guides/:slug/audio.
 app.post("/api/guides", async (c) => {
@@ -1004,37 +1111,6 @@ app.post("/api/guides", async (c) => {
   }
 });
 
-// Generate chapters from the existing transcript + word timings via Claude.
-// Overwrites Guides.chapters_json. Requires the guide to have a transcript
-// and word timings (timing.words). Open for now — see todo.md re: auth.
-app.post("/api/guides/:slug/auto-chapters", async (c) => {
-  try {
-    const slug = c.req.param('slug');
-    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
-
-    const guide = await db.getGuide(slug);
-    if (!guide) return c.json({ error: "Guide not found" }, 404);
-    if (!guide.transcript) return c.json({ error: "Guide has no transcript" }, 422);
-    const words = guide.timing?.words;
-    if (!Array.isArray(words) || !words.length) return c.json({ error: "Guide has no word timings" }, 422);
-
-    const t0 = Date.now();
-    const chapters = await generateChapters({
-      transcript: guide.transcript,
-      words,
-      durationSec: guide.duration || words[words.length - 1]?.t || 0,
-    });
-    if (!chapters.length) return c.json({ error: "No chapters generated" }, 502);
-
-    await db.upsertGuide({ ...guide, chapters });
-    logger.info('Auto-chapters generated', { slug, count: chapters.length, ms: Date.now() - t0 });
-    return c.json({ chapters });
-  } catch (e) {
-    logger.error('Auto-chapters error', { error: e.message, slug: c.req.param('slug') });
-    return c.json({ error: e.message || "Failed to generate chapters" }, 500);
-  }
-});
-
 // Upload an MP3 for an existing guide. Writes to backend/public/audio/<slug>.mp3
 // and updates the guide's audio_url to /audio/<slug>.mp3.
 app.post("/api/guides/:slug/audio", async (c) => {
@@ -1062,13 +1138,7 @@ app.post("/api/guides/:slug/audio", async (c) => {
     await writeFile(outPath, buf);
 
     const audioUrl = `/audio/${slug}.mp3`;
-    // Re-upsert with the same payload + new audio URL. Pull the existing guide
-    // so we don't blow away chapters/transcript/timing.
-    await db.upsertGuide({
-      ...guide,
-      audio: audioUrl,
-      // upsertGuide expects camelCase keys; guide already comes shaped that way.
-    });
+    await db.upsertGuide({ ...guide, audio: audioUrl });
 
     logger.info('Audio uploaded', { slug, bytes: buf.length });
     return c.json({ audio: audioUrl, bytes: buf.length });
@@ -1213,6 +1283,17 @@ app.post("/api/signin", async (c) => {
       logger.debug('Password verification failed');
       recordFailedLogin(email);
       return c.json({ error: "Invalid credentials" }, 401);
+    }
+
+    // Lazy migrate legacy bcrypt hash to scrypt (best-effort, never blocks login)
+    if (needsRehash(auth.password)) {
+      try {
+        const newHash = await hashPassword(password);
+        await db.updateAuth({ email }, { password: newHash });
+        logger.debug('Password hash migrated to scrypt');
+      } catch (e) {
+        logger.warn('Password rehash failed', { error: e.message });
+      }
     }
 
     // Get user
