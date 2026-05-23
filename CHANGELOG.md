@@ -6,6 +6,31 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.44.0
+
+  Add timeline drag scrubbing
+  Continuous side transcript scroll
+  Center active words in pane
+  Improve split view roll
+
+0.43.0
+
+  Fix bottom transcript scroll
+  Preserve article paragraphs
+  Send kind metadata
+  Add fetch timeout
+  Sync notes anchors
+  Decode HTML entities
+  Gate marker hits
+  Defer modal close
+  Remove dead state
+  Restore page title
+  Stop marker autoplay
+  Clear stale highlight
+  Edit guide title
+  Compose active highlight
+  Add touch fallback
+
 0.42.0
 
   Add drag-select notes in transcript

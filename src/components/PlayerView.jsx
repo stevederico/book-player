@@ -25,7 +25,7 @@ export default function PlayerView() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState('main');
   const [feedback, setFeedback] = useState(null);
-  const [panel, setPanel] = useState('transcript');
+  const [panel, setPanel] = useState('notes');
   const [captionsOn, setCaptionsOn] = useState(() => {
     try { return localStorage.getItem('pg.cc') !== '0'; } catch { return true; }
   });
@@ -36,11 +36,13 @@ export default function PlayerView() {
   const [notes, setNotes] = useState('');
   const [noteSelection, setNoteSelection] = useState(null);
   const [noteCustomText, setNoteCustomText] = useState('');
-  const [isNoteEditorOpen, setIsNoteEditorOpen] = useState(false);
+  const [noteAnchors, setNoteAnchors] = useState([]);
+  const [noteHighlight, setNoteHighlight] = useState(null); // { start: number, end: number }
   const menuRef = useRef(null);
   const chaptersMenuRef = useRef(null);
   const activeChapterItemRef = useRef(null);
   const selectionPopupRef = useRef(null);
+  const noteInputRef = useRef(null);
   const feedbackTimerRef = useRef(null);
   const transcriptScrollRef = useRef(null);
   const activeWordRef = useRef(null);
@@ -48,6 +50,9 @@ export default function PlayerView() {
   const sideActiveWordRef = useRef(null);
   const userScrollUntilRef = useRef(0);
   const lastProgressSaveRef = useRef(0);
+  const playheadRef = useRef(0);
+  const durRef = useRef(0);
+  const scrubbingRef = useRef(false);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -84,7 +89,6 @@ export default function PlayerView() {
       if (selectionPopupRef.current && !selectionPopupRef.current.contains(e.target)) {
         setNoteSelection(null);
         setNoteCustomText('');
-        setIsNoteEditorOpen(false);
       }
     }
     document.addEventListener('mousedown', onDoc);
@@ -98,13 +102,30 @@ export default function PlayerView() {
       if (e.key === 'Escape') {
         setNoteSelection(null);
         setNoteCustomText('');
-        setIsNoteEditorOpen(false);
         window.getSelection()?.removeAllRanges();
       }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [noteSelection]);
+
+  // Auto-focus the custom note textarea as soon as the popup appears
+  useEffect(() => {
+    if (noteSelection && noteInputRef.current) {
+      const t = setTimeout(() => {
+        noteInputRef.current?.focus();
+        noteInputRef.current?.select?.();
+      }, 60);
+      return () => clearTimeout(t);
+    }
+  }, [noteSelection]);
+
+  // Auto-clear the re-highlighted note text after a while
+  useEffect(() => {
+    if (!noteHighlight) return;
+    const t = setTimeout(() => setNoteHighlight(null), 9000);
+    return () => clearTimeout(t);
+  }, [noteHighlight]);
 
   function changeRate(r) {
     if (audioRef.current) audioRef.current.playbackRate = r;
@@ -121,11 +142,38 @@ export default function PlayerView() {
 
   useEffect(() => {
     try { setNotes(localStorage.getItem(`pg.notes.${slug}`) || ''); } catch { setNotes(''); }
+    try {
+      const raw = localStorage.getItem(`pg.noteAnchors.${slug}`);
+      setNoteAnchors(raw ? JSON.parse(raw) : []);
+    } catch {
+      setNoteAnchors([]);
+    }
+    // Stale highlight/popup state from the previous guide would point at unrelated words
+    setNoteHighlight(null);
+    setNoteSelection(null);
+    setNoteCustomText('');
   }, [slug]);
 
+  function persistAnchors(next) {
+    setNoteAnchors(next);
+    try {
+      localStorage.setItem(`pg.noteAnchors.${slug}`, JSON.stringify(next));
+    } catch {}
+  }
+
+  // Notes textarea is the source of truth: when the user edits the textarea, drop any
+  // anchor whose `[m:ss]` timestamp line no longer appears in the text.
   function updateNotes(v) {
     setNotes(v);
     try { localStorage.setItem(`pg.notes.${slug}`, v); } catch {}
+    const surviving = noteAnchors.filter(a => v.includes(`[${fmt(a.time)}]`));
+    if (surviving.length !== noteAnchors.length) {
+      persistAnchors(surviving);
+    }
+  }
+
+  function updateNoteAnchors(next) {
+    persistAnchors(next);
   }
 
   const audioRef = useRef(null);
@@ -134,6 +182,7 @@ export default function PlayerView() {
 
   useEffect(() => {
     let cancelled = false;
+    const previousTitle = document.title;
     fetch(`/api/guides/${encodeURIComponent(slug)}`)
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -150,7 +199,10 @@ export default function PlayerView() {
         if (cancelled) return;
         console.error('Failed to load guide:', err);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      document.title = previousTitle;
+    };
   }, [slug]);
 
   const {
@@ -264,11 +316,19 @@ export default function PlayerView() {
     };
   }, [splitTranscript, transcriptParas]);
 
+  // Keep live refs of playhead and duration so the side-scroll RAF can read
+  // the latest values every frame without causing the effect to restart constantly.
+  useEffect(() => { playheadRef.current = current; }, [current]);
+  useEffect(() => { durRef.current = duration; }, [duration]);
+
   useEffect(() => {
     if (!playing) return;
     if (Date.now() < userScrollUntilRef.current) return;
-    function scrollActiveIntoView(el, scroller) {
-      if (!el || !scroller) return;
+
+    // Bottom transcript panel: discrete correction only when the active word gets too low
+    const scroller = transcriptScrollRef.current;
+    const el = activeWordRef.current;
+    if (panel === 'transcript' && scroller && el) {
       const elRect = el.getBoundingClientRect();
       const sRect = scroller.getBoundingClientRect();
       const relTop = elRect.top - sRect.top;
@@ -278,13 +338,62 @@ export default function PlayerView() {
         scroller.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
       }
     }
-    if (panel === 'transcript') {
-      scrollActiveIntoView(activeWordRef.current, transcriptScrollRef.current);
-    }
-    if (splitTranscript && transcriptParas) {
-      scrollActiveIntoView(sideActiveWordRef.current, sideTranscriptScrollRef.current);
-    }
-  }, [activeWord, panel, playing, splitTranscript, transcriptParas]);
+  }, [activeWord, panel, playing]);
+
+  // Continuous damped scroll for the *side* transcript pane in split mode.
+  // Pure time-based (current / duration) + reading line offset so the active
+  // words sit in the middle of the pane (not jammed at the top) and the scroll
+  // never stops during pauses — classic script-to-screen roll.
+  useEffect(() => {
+    if (!splitTranscript || !playing) return;
+    const scroller = sideTranscriptScrollRef.current;
+    if (!scroller) return;
+
+    let rafId;
+
+    const tick = () => {
+      if (Date.now() < userScrollUntilRef.current) {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+
+      const d = durRef.current || duration || 0;
+      const t = playheadRef.current || current || 0;
+      const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+
+      if (maxScroll <= 10 || d <= 0) {
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
+
+      const frac = Math.min(1, Math.max(0, t / d));
+
+      // Target the "current" moment ~40% down the visible pane (not at the very top).
+      // This keeps the highlighted words in the comfortable middle/upper-middle area
+      // with good lookahead below, like the script-to-screen videos.
+      const paneH = scroller.clientHeight;
+      const readingLine = paneH * 0.40;
+      let target = frac * maxScroll - readingLine;
+      const desired = Math.max(0, Math.min(maxScroll, target));
+
+      const curr = scroller.scrollTop;
+      const gap = Math.abs(desired - curr);
+
+      if (gap > 90) {
+        // Big jump (seek, chapter, word click) → snap instantly so the view matches
+        scroller.scrollTop = desired;
+      } else {
+        // Normal playback: soft damped lerp for continuous slow roll
+        const next = curr + (desired - curr) * 0.095;
+        scroller.scrollTop = next;
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [splitTranscript, playing]);
 
   function seekToWord(wIdx) {
     const a = audioRef.current;
@@ -297,9 +406,19 @@ export default function PlayerView() {
     a.play().catch(() => {});
   }
 
-  // Called by TranscriptView instances (hero + bottom) when user finishes a drag selection.
-  // Captures viewport rect for fixed popup positioning + resolves start time from anchors.
-  const handleTextSelected = useCallback((text, startIdx) => {
+  // Move the playhead without forcing playback — used when previewing a saved note
+  // so the user isn't yanked into play (and their pg.progress.<slug> isn't overwritten).
+  function seekToTime(t) {
+    const a = audioRef.current;
+    if (!a) return;
+    const clamped = Math.max(0, Math.min(t, duration || 999999));
+    a.currentTime = clamped;
+  }
+
+  // Called by TranscriptView instances when user finishes a drag selection.
+  // We store the exact word range so we can re-highlight the original text when the user
+  // later clicks the note marker on the progress bar.
+  const handleTextSelected = useCallback((text, startIdx, endIdx) => {
     if (!anchors) return;
     const t = timeAtWordIndex(anchors, startIdx);
     const sel = window.getSelection();
@@ -308,13 +427,19 @@ export default function PlayerView() {
       const r = sel.getRangeAt(0).getBoundingClientRect();
       rect = { top: r.top, left: r.left, bottom: r.bottom, width: r.width, height: r.height };
     }
-    setNoteSelection({ text, time: t, rect });
+    setNoteSelection({
+      text,
+      time: t,
+      rect,
+      startWord: startIdx,
+      endWord: endIdx ?? startIdx,
+    });
     setNoteCustomText('');
-    setIsNoteEditorOpen(false);
   }, [anchors]);
 
   function handleSaveNoteSelection() {
     if (!noteSelection) return;
+
     const quotePart = `[${fmt(noteSelection.time)}] "${noteSelection.text}"`;
     const extra = noteCustomText.trim();
     const entry = extra
@@ -322,20 +447,29 @@ export default function PlayerView() {
       : `\n\n${quotePart}`;
     const base = (notes || '').trimEnd();
     updateNotes(base + entry);
+
+    // Persist structured anchor so we can re-highlight the exact text later
+    if (noteSelection.startWord != null && noteSelection.endWord != null) {
+      const newAnchor = {
+        time: noteSelection.time,
+        startWord: noteSelection.startWord,
+        endWord: noteSelection.endWord,
+        selectedText: noteSelection.text,
+      };
+      // Avoid exact duplicates by time+range
+      const exists = noteAnchors.some(a =>
+        Math.abs(a.time - newAnchor.time) < 1 &&
+        a.startWord === newAnchor.startWord &&
+        a.endWord === newAnchor.endWord
+      );
+      if (!exists) {
+        updateNoteAnchors([...noteAnchors, newAnchor]);
+      }
+    }
+
     setPanel('notes');
     window.getSelection()?.removeAllRanges();
     setNoteSelection(null);
-    setNoteCustomText('');
-    setIsNoteEditorOpen(false);
-  }
-
-  function openNoteEditor() {
-    if (!noteSelection) return;
-    setIsNoteEditorOpen(true);
-  }
-
-  function cancelNoteEditor() {
-    setIsNoteEditorOpen(false);
     setNoteCustomText('');
   }
 
@@ -347,12 +481,46 @@ export default function PlayerView() {
     setActiveIdx(idx);
   }, []);
 
-  function onTimelineClick(e) {
+  // --- Timeline scrubbing (click + drag) ---
+  function seekFromPointer(e) {
     const a = audioRef.current;
-    if (!a || !a.duration) return;
-    const rect = timelineRef.current.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    a.currentTime = pct * a.duration;
+    const rect = timelineRef.current?.getBoundingClientRect();
+    if (!a || !rect || !rect.width) return;
+
+    // PointerEvent has clientX for both mouse and touch (normalized)
+    const x = e.clientX;
+    if (x == null) return;
+
+    const pct = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
+    const targetTime = pct * (a.duration || duration || 0);
+    a.currentTime = targetTime;
+
+    // Immediately reflect in UI state so thumb/progress follow the drag live
+    setCurrent(targetTime);
+  }
+
+  function handleTimelinePointerDown(e) {
+    e.stopPropagation();
+    scrubbingRef.current = true;
+
+    seekFromPointer(e);
+
+    const onMove = (ev) => {
+      if (scrubbingRef.current) {
+        seekFromPointer(ev);
+      }
+    };
+
+    const onUp = () => {
+      scrubbingRef.current = false;
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+    };
+
+    document.addEventListener('pointermove', onMove, { passive: false });
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
   }
 
   if (!guide) return null;
@@ -386,6 +554,7 @@ export default function PlayerView() {
                     onWordClick={seekToWord}
                     activeRef={sideActiveWordRef}
                     onTextSelected={handleTextSelected}
+                    highlightedNoteRange={noteHighlight}
                   />
                 </div>
               </div>
@@ -399,7 +568,12 @@ export default function PlayerView() {
             )}
 
             <div className="overlay">
-              <div className="timeline" ref={timelineRef} onClick={onTimelineClick}>
+              <div
+                className="timeline"
+                ref={timelineRef}
+                onPointerDown={handleTimelinePointerDown}
+                onClick={e => e.stopPropagation()}
+              >
                 <div className="timeline-progress" style={{ width: pct + '%' }} />
                 <div className="chapter-markers">
                   {chapters.map((c, i) => (
@@ -410,6 +584,29 @@ export default function PlayerView() {
                       title={c.title}
                       onClick={e => { e.stopPropagation(); jumpToChapter(c, i); }}
                     />
+                  ))}
+                </div>
+                <div className="note-markers">
+                  {duration > 0 && noteAnchors.map((anchor, i) => (
+                    <div
+                      key={`note-${i}`}
+                      className="note-marker"
+                      style={{ left: `${(anchor.time / duration) * 100}%` }}
+                      onClick={e => {
+                        e.stopPropagation();
+                        seekToTime(anchor.time);
+                        setPanel('transcript'); // make sure the transcript is visible
+                        setNoteHighlight({
+                          start: anchor.startWord,
+                          end: anchor.endWord,
+                        });
+                      }}
+                      title={`Note: ${anchor.selectedText?.slice(0, 60)}${anchor.selectedText?.length > 60 ? '…' : ''}`}
+                    >
+                      <svg width="10" height="12" viewBox="0 0 10 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M1.5 1H8.5V11L5 8.2L1.5 11V1Z" fill="#fbbf24" stroke="#fff" strokeWidth="1.2" strokeLinejoin="round"/>
+                      </svg>
+                    </div>
                   ))}
                 </div>
                 <div className="timeline-thumb" style={{ left: pct + '%' }} />
@@ -589,66 +786,45 @@ export default function PlayerView() {
           activeWord={activeWord}
           onWordClick={seekToWord}
           activeWordRef={activeWordRef}
+          transcriptScrollRef={transcriptScrollRef}
           fmt={fmt}
           onTextSelected={handleTextSelected}
+          highlightedNoteRange={noteHighlight}
         />
       </div>
 
-      {/* Floating popup shown after drag-selecting text.
-          Click the quote area to open the rich editor (add your own note).
-          "Add note" button is the quick path (no custom text). */}
+      {/* Floating note popup — input field shown immediately on drag select.
+          Type your own note in the textarea (or leave blank to save just the quote + timestamp). */}
       {noteSelection && (
         <div
           ref={selectionPopupRef}
-          className={`selection-popup ${isNoteEditorOpen ? 'editor' : ''}`}
+          className="selection-popup editor"
           style={{
-            top: `${Math.max(8, (noteSelection.rect?.top || 120) - (isNoteEditorOpen ? 110 : 52))}px`,
-            left: `${Math.max(8, Math.min(noteSelection.rect?.left || 100, (typeof window !== 'undefined' ? window.innerWidth : 900) - (isNoteEditorOpen ? 300 : 260)))}px`,
+            top: `${Math.max(8, (noteSelection.rect?.top || 120) - 110)}px`,
+            left: `${Math.max(8, Math.min(noteSelection.rect?.left || 100, (typeof window !== 'undefined' ? window.innerWidth : 900) - 300))}px`,
           }}
         >
-          {isNoteEditorOpen ? (
-            <div className="selection-editor">
-              <div className="selection-popup-content">
-                <span className="selection-time">[{fmt(noteSelection.time)}]</span>
-                <span className="selection-quote-full" title={noteSelection.text}>
-                  “{noteSelection.text.length > 80 ? noteSelection.text.slice(0, 77) + '…' : noteSelection.text}”
-                </span>
-              </div>
-              <textarea
-                className="selection-note-input"
-                placeholder="Add your own note, insight, or reaction…"
-                value={noteCustomText}
-                onChange={e => setNoteCustomText(e.target.value)}
-                rows={3}
-              />
-              <div className="selection-editor-actions">
-                <button type="button" className="selection-btn cancel" onClick={cancelNoteEditor}>Cancel</button>
-                <button type="button" className="selection-btn" onClick={handleSaveNoteSelection}>Save note</button>
-              </div>
+          <div className="selection-editor">
+            <div className="selection-popup-content">
+              <span className="selection-time">[{fmt(noteSelection.time)}]</span>
+              <span className="selection-quote-full" title={noteSelection.text}>
+                “{noteSelection.text.length > 80 ? noteSelection.text.slice(0, 77) + '…' : noteSelection.text}”
+              </span>
             </div>
-          ) : (
-            <>
-              <div
-                className="selection-popup-content"
-                onClick={openNoteEditor}
-                style={{ cursor: 'pointer' }}
-                title="Click to add your own note"
-              >
-                <span className="selection-time">[{fmt(noteSelection.time)}]</span>
-                <span className="selection-quote" title={noteSelection.text}>
-                  {noteSelection.text.length > 62 ? noteSelection.text.slice(0, 59) + '…' : noteSelection.text}
-                </span>
-              </div>
-              <button
-                type="button"
-                className="selection-btn"
-                onClick={(e) => { e.stopPropagation(); handleSaveNoteSelection(); }}
-                aria-label="Quick-add selection to notes"
-              >
-                Add note
+            <textarea
+              ref={noteInputRef}
+              className="selection-note-input"
+              placeholder="Add your own note, insight, or reaction…"
+              value={noteCustomText}
+              onChange={e => setNoteCustomText(e.target.value)}
+              rows={3}
+            />
+            <div className="selection-editor-actions">
+              <button type="button" className="selection-btn" onClick={handleSaveNoteSelection}>
+                Save note
               </button>
-            </>
-          )}
+            </div>
+          </div>
         </div>
       )}
     </>
