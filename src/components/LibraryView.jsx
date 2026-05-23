@@ -321,7 +321,7 @@ export default function LibraryView() {
           </span>
           <span className="font-['Bricolage_Grotesque'] font-extrabold text-[1.1rem] tracking-[-0.03em]">Book Player</span>
         </div>
-        <div className="max-w-[560px] w-full sm:justify-self-center col-span-2 sm:col-span-1 row-start-2 sm:row-start-1 order-3 sm:order-none">
+        <div className="max-w-[560px] w-full sm:justify-self-center col-span-2 sm:col-span-1 sm:col-start-2 row-start-2 sm:row-start-1 order-3 sm:order-none">
           <input
             type="search"
             value={query}

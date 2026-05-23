@@ -706,7 +706,7 @@ export default function PlayerView() {
               >
                 <div
                   style={{ width: pct + '%' }}
-                  className="absolute left-0 top-0 h-full bg-[var(--accent)] transition-[width] duration-[50ms] ease-linear shadow-[0_0_8px_rgba(var(--accent-glow),0.5)]"
+                  className="absolute left-0 top-0 h-full bg-[var(--accent)] shadow-[0_0_8px_rgba(var(--accent-glow),0.5)]"
                 />
                 <div className="absolute top-0 left-0 right-0 h-full pointer-events-none z-[11]">
                   {chapters.map((c, i) => (

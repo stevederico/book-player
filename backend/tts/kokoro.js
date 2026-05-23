@@ -282,53 +282,132 @@ export async function synthesize(text, { voice = 'af_heart', speed = 1 } = {}) {
   // 6. Build per-char start times
   const charTimes = buildCharTimes(durations, phChars.length);
 
-  // 7. Locate each input word inside phStr by substring-matching its per-word
-  // IPA. Walk forward monotonically so words never appear out of order. When
-  // a function word's IPA was merged by the whole-text phonemize and the
-  // substring can't be found, interpolate timing from neighbors.
-  const words = [];
-  let searchFrom = 0;
-  for (let i = 0; i < inputWords.length; i++) {
-    const ipa = ipaWords[i];
-    let foundAt = -1;
-    if (ipa) {
-      // Try exact match starting from searchFrom.
-      foundAt = phStr.indexOf(ipa, searchFrom);
-      // If that fails, try matching just the leading 3 chars (handles merged
-      // function words where the tail got fused with the next word).
-      if (foundAt < 0 && ipa.length > 3) {
-        foundAt = phStr.indexOf(ipa.slice(0, 3), searchFrom);
-      }
-    }
-    if (foundAt >= 0) {
-      // Convert UTF-16 indexOf result to a code-point index for charTimes.
-      const cpIdx = [...phStr.slice(0, foundAt)].length;
-      const t = charTimes[cpIdx] ?? 0;
-      words.push({
-        w: inputWords[i],
-        t: Number(t.toFixed(3)),
-      });
-      searchFrom = foundAt + (ipa?.length || 1);
-    } else {
-      // Couldn't locate this word — emit a placeholder; we'll interpolate below.
-      words.push({ w: inputWords[i], t: null });
-    }
+  // 7. Align input words to whole-text IPA tokens.
+  //
+  // Why not substring-search per-word IPA in phStr: espeak emits primary stress
+  // (ˈ) on isolated words but drops it for unstressed words in a sentence
+  // ("ðˈɛɹ" alone vs "ðɛɹˌɑːɹ" inside "There are"). Substring search misses,
+  // ~40% of words get t=null, interpolation linearly spreads them, and the
+  // highlighter "freezes then jumps."
+  //
+  // Approach: walk whole-text tokens (whitespace-split, stress-stripped) and
+  // input words in parallel. Three cases per input word:
+  //   1) ipa expands to multiple tokens (e.g. "2025" → "tuː θaʊzənd twɛnti
+  //      faɪv"): consume that many whole-text tokens.
+  //   2) whole-text token is much bigger than this word's ipa: fused — share
+  //      this token across N consecutive input words, sub-allocating time
+  //      proportionally to each word's ipa length.
+  //   3) 1:1 — assign and advance.
+  const audioDur = wave.length / SAMPLE_RATE;
+
+  // Build normalized phStr (no stress marks) + reverse map back to original
+  // code-point indices, so we can look up charTimes by the original position.
+  const phNormCps = [];
+  const phNormToOrig = [];
+  for (let i = 0; i < phChars.length; i++) {
+    if (phChars[i] === 'ˈ' || phChars[i] === 'ˌ') continue;
+    phNormCps.push(phChars[i]);
+    phNormToOrig.push(i);
   }
 
-  // Interpolate `t: null` placeholders using neighbors so the timing array
-  // stays monotonically non-decreasing for downstream highlight logic.
-  const audioDur = wave.length / SAMPLE_RATE;
-  for (let i = 0; i < words.length; i++) {
-    if (words[i].t != null) continue;
-    let prev = i;
-    while (prev > 0 && words[prev].t == null) prev--;
-    let next = i;
-    while (next < words.length && words[next].t == null) next++;
-    const prevT = prev >= 0 && words[prev].t != null ? words[prev].t : 0;
-    const nextT = next < words.length && words[next].t != null ? words[next].t : audioDur;
-    const span = Math.max(1, next - prev);
-    words[i].t = Number((prevT + ((nextT - prevT) * (i - prev)) / span).toFixed(3));
+  // Tokenize normalized phStr; each token records its start in normalized
+  // space (for sub-token offsets) and in original phStr (for charTimes).
+  const wholeTokens = [];
+  {
+    let cur = '';
+    let startNorm = 0;
+    for (let i = 0; i < phNormCps.length; i++) {
+      if (phNormCps[i] === ' ') {
+        if (cur) wholeTokens.push({ str: cur, startNorm, startCp: phNormToOrig[startNorm] });
+        cur = '';
+      } else {
+        if (!cur) startNorm = i;
+        cur += phNormCps[i];
+      }
+    }
+    if (cur) wholeTokens.push({ str: cur, startNorm, startCp: phNormToOrig[startNorm] });
   }
+
+  const stripStress = (s) => (s || '').replace(/[ˈˌ]/g, '');
+  const wordIpaTokens = inputWords.map((_, i) => stripStress(ipaWords[i] || '').split(/\s+/).filter(Boolean));
+
+  const wordTimes = new Array(inputWords.length).fill(null);
+  let wti = 0;
+  let wi = 0;
+  while (wti < wholeTokens.length && wi < inputWords.length) {
+    const wt = wholeTokens[wti];
+    const wToks = wordIpaTokens[wi];
+    const wtTime = charTimes[wt.startCp] ?? 0;
+
+    if (wToks.length === 0) {
+      wordTimes[wi] = wtTime;
+      wi += 1;
+      continue;
+    }
+
+    if (wToks.length > 1) {
+      // 1 input word → multiple per-word tokens (e.g. "2025"); take the first
+      // whole-text token's time and skip ahead by that many whole-text tokens.
+      wordTimes[wi] = wtTime;
+      wti += wToks.length;
+      wi += 1;
+      continue;
+    }
+
+    const wTok = wToks[0];
+    if (wt.str.length >= wTok.length * 1.45) {
+      // Fusion: this whole-text token spans this input word + more
+      wordTimes[wi] = wtTime;
+      let consumedChars = wTok.length;
+      let n = 1;
+      const nextWtTime = wti + 1 < wholeTokens.length
+        ? (charTimes[wholeTokens[wti + 1].startCp] ?? audioDur)
+        : audioDur;
+      const tokDur = nextWtTime - wtTime;
+      while (wi + n < inputWords.length && consumedChars < wt.str.length * 0.85) {
+        const nextToks = wordIpaTokens[wi + n];
+        if (!nextToks || nextToks.length !== 1) break;
+        const len = nextToks[0].length;
+        if (consumedChars + len > wt.str.length * 1.15) break;
+        // Sub-allocate within wt's duration based on cumulative ipa chars
+        const normSubIdx = Math.min(wt.startNorm + consumedChars, phNormToOrig.length - 1);
+        const origSubIdx = phNormToOrig[normSubIdx] ?? wt.startCp;
+        const fineTime = charTimes[origSubIdx];
+        wordTimes[wi + n] = (fineTime != null && fineTime >= wtTime && fineTime <= nextWtTime)
+          ? fineTime
+          : wtTime + tokDur * (consumedChars / wt.str.length);
+        consumedChars += len;
+        n += 1;
+      }
+      wi += n;
+      wti += 1;
+      continue;
+    }
+
+    // 1:1
+    wordTimes[wi] = wtTime;
+    wi += 1;
+    wti += 1;
+  }
+
+  // Any remaining input words (whole-text ran out): assign audioDur — caller
+  // will see them grouped at the tail rather than scattered.
+  while (wi < inputWords.length) {
+    wordTimes[wi] = audioDur;
+    wi += 1;
+  }
+
+  // Enforce monotonic non-decreasing times (defensive against any sub-allocation
+  // edge case where charTimes lookup yields a stress-mark slot that's slightly
+  // earlier than the previous word's time).
+  for (let i = 1; i < wordTimes.length; i++) {
+    if (wordTimes[i] < wordTimes[i - 1]) wordTimes[i] = wordTimes[i - 1];
+  }
+
+  const words = inputWords.map((w, i) => ({
+    w,
+    t: Number((wordTimes[i] ?? 0).toFixed(3)),
+  }));
 
   const audioWav = floatToWav(wave, SAMPLE_RATE);
   const durationSec = audioDur;

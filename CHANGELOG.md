@@ -6,6 +6,14 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.67.0
+
+  Fix word highlighter
+  Fix progress disconnect
+  Rewrite TTS alignment
+  Strip stress marks
+  Center library search
+
 0.66.0
 
   Transcript content-visibility
