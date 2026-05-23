@@ -1097,9 +1097,10 @@ app.post("/api/guides", async (c) => {
       thumbnail: typeof body.thumbnail === 'string' ? body.thumbnail.trim() : null,
       transcript: typeof body.transcript === 'string' ? body.transcript : null,
       defaultViewMode: body.defaultViewMode === 'generated' ? 'generated' : 'real',
-      chapters: [],
-      timing: null,
-      audio: null,
+      chapters: Array.isArray(body.chapters) ? body.chapters : [],
+      timing: body.timing && typeof body.timing === 'object' ? body.timing : null,
+      audio: typeof body.audio === 'string' ? body.audio.trim() : null,
+      kind: (body.kind === 'essay' || body.kind === 'lecture') ? body.kind : 'essay',
       visibility: 'public',
     });
 

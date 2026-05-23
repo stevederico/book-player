@@ -1,227 +1,13 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router';
-
-function normalizeToken(s) {
-  return s.toLowerCase().replace(/[^\w']/g, '');
-}
-
-function alignTimings(transcriptParas, timingWords) {
-  if (!transcriptParas || !timingWords?.length) return null;
-  const flat = transcriptParas.flatMap(p => p.words);
-  const times = new Array(flat.length).fill(null);
-  let ti = 0;
-  for (let i = 0; i < flat.length && ti < timingWords.length; i++) {
-    const tw = normalizeToken(flat[i].text);
-    if (!tw) continue;
-    for (let k = 0; k < 5 && ti + k < timingWords.length; k++) {
-      if (normalizeToken(timingWords[ti + k].w) === tw) {
-        times[i] = timingWords[ti + k].t;
-        ti += k + 1;
-        break;
-      }
-    }
-  }
-  let last = 0;
-  for (let i = 0; i < times.length; i++) {
-    if (times[i] == null) times[i] = last;
-    else last = times[i];
-  }
-  return times;
-}
-
-function wordIndexFromTimes(wordStartTimes, t) {
-  if (!wordStartTimes?.length) return -1;
-  let lo = 0, hi = wordStartTimes.length - 1, ans = 0;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (wordStartTimes[mid] <= t) { ans = mid; lo = mid + 1; }
-    else hi = mid - 1;
-  }
-  return ans;
-}
-
-function findQuoteStartWord(flatWords, quote, hintIdx = 0) {
-  const q = (quote || '')
-    .toLowerCase()
-    .replace(/[^\w\s']/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 6);
-  if (q.length < 2) return -1;
-  for (let i = hintIdx; i <= flatWords.length - q.length; i++) {
-    let match = true;
-    for (let j = 0; j < q.length; j++) {
-      if (normalizeToken(flatWords[i + j]) !== q[j]) { match = false; break; }
-    }
-    if (match) return i;
-  }
-  return -1;
-}
-
-function buildAnchors(transcriptParas, chapters, duration) {
-  if (!transcriptParas || !chapters?.length || !duration) return null;
-  const flat = transcriptParas.flatMap(p => p.words.map(w => w.text));
-  const total = flat.length;
-
-  const found = [];
-  let hint = 0;
-  chapters.forEach(ch => {
-    if (ch.time == null) return;
-    const wIdx = findQuoteStartWord(flat, ch.quote, hint);
-    if (wIdx < 0) return;
-    found.push({ word: wIdx, time: ch.time });
-    hint = wIdx + 1;
-  });
-
-  let pace = 0;
-  if (found.length >= 2) {
-    const paces = [];
-    for (let i = 1; i < found.length; i++) {
-      const dw = found[i].word - found[i - 1].word;
-      const dt = found[i].time - found[i - 1].time;
-      if (dw > 0 && dt > 0) paces.push(dw / dt);
-    }
-    if (paces.length) {
-      paces.sort((a, b) => a - b);
-      pace = paces[Math.floor(paces.length / 2)];
-    }
-  }
-
-  if (found.length && found[0].word > 0 && found[0].time === 0 && pace > 0) {
-    found[0] = { word: found[0].word, time: found[0].word / pace };
-  }
-
-  const anchors = [...found].sort((a, b) => a.time - b.time);
-  if (!anchors.length || anchors[0].time > 0 || anchors[0].word > 0) {
-    anchors.unshift({ word: 0, time: 0 });
-  }
-  if (anchors.length && anchors[anchors.length - 1].word < total) {
-    anchors.push({ word: total, time: duration });
-  }
-  return anchors;
-}
-
-function wordIndexAtTime(anchors, t) {
-  if (!anchors || anchors.length < 2) return 0;
-  let i = 0;
-  while (i < anchors.length - 1 && anchors[i + 1].time <= t) i++;
-  const a = anchors[i];
-  const b = anchors[i + 1] || a;
-  if (!b || b.time <= a.time) return a.word;
-  const frac = (t - a.time) / (b.time - a.time);
-  return Math.round(a.word + frac * (b.word - a.word));
-}
-
-function timeAtWordIndex(anchors, wIdx) {
-  if (!anchors || anchors.length < 2) return 0;
-  let i = 0;
-  while (i < anchors.length - 1 && anchors[i + 1].word <= wIdx) i++;
-  const a = anchors[i];
-  const b = anchors[i + 1] || a;
-  if (!b || b.word <= a.word) return a.time;
-  const frac = (wIdx - a.word) / (b.word - a.word);
-  return a.time + frac * (b.time - a.time);
-}
-
-function buildCaptionChunks(transcriptParas) {
-  if (!transcriptParas) return null;
-  const flat = transcriptParas.flatMap(p => p.words);
-  const chunks = [];
-  const MAX = 12;
-  const SOFT = 7;
-  let buf = [];
-  const flush = () => {
-    if (!buf.length) return;
-    chunks.push({
-      start: buf[0].index,
-      end: buf[buf.length - 1].index,
-      text: buf.map(w => w.text).join(' ')
-    });
-    buf = [];
-  };
-  for (const w of flat) {
-    buf.push(w);
-    const last = w.text[w.text.length - 1];
-    const hardBreak = /[.!?]/.test(last);
-    const softBreak = /[,;:]/.test(last);
-    if (hardBreak || buf.length >= MAX || (softBreak && buf.length >= SOFT)) flush();
-  }
-  flush();
-  return chunks;
-}
-
-function chunkIndexAtWord(chunks, wIdx) {
-  if (!chunks?.length) return -1;
-  let lo = 0, hi = chunks.length - 1, ans = 0;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (chunks[mid].start <= wIdx) { ans = mid; lo = mid + 1; }
-    else hi = mid - 1;
-  }
-  return ans;
-}
-
-function parseTranscript(text) {
-  const lines = text.split(/\r?\n/);
-  let start = 0;
-  if (lines[0]?.startsWith('#')) {
-    start = lines.findIndex((l, i) => i > 0 && l.trim() === '');
-    start = start === -1 ? 0 : start + 1;
-  }
-  while (start < lines.length && /^Source:/i.test(lines[start])) start++;
-  while (start < lines.length && lines[start].trim() === '') start++;
-  const body = lines.slice(start).join('\n');
-  const chunks = body.split(/\n\s*\n+/).map(p => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
-  // Many sources hard-wrap every visual line with a blank line between, losing real
-  // paragraph boundaries. Merge fragments that don't end on sentence-terminal
-  // punctuation with the next chunk; standalone numeric markers (footnotes, section
-  // numbers) stay as their own paragraph.
-  const paras = [];
-  let current = '';
-  for (const chunk of chunks) {
-    const endsTerminal = /[.!?][)"'""']?$/.test(chunk);
-    const wordCount = chunk.split(/\s+/).length;
-    // Standalone: numeric markers, or short heading-like chunks (≤5 words) that
-    // don't end with sentence-terminal punctuation — titles, dates, section labels.
-    if (/^\d+\.?$/.test(chunk) || (wordCount <= 5 && !endsTerminal)) {
-      if (current) { paras.push(current); current = ''; }
-      paras.push(chunk);
-      continue;
-    }
-    current = current ? current + ' ' + chunk : chunk;
-    if (endsTerminal) {
-      paras.push(current);
-      current = '';
-    }
-  }
-  if (current) paras.push(current);
-  let wordCounter = 0;
-  return paras.map(p => {
-    const words = p.split(' ').map(w => ({ text: w, index: wordCounter++ }));
-    return { words };
-  });
-}
-
-function fmt(sec) {
-  if (!sec || isNaN(sec)) return '00:00';
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return m + ':' + String(s).padStart(2, '0');
-}
-
-function resolveAsset(p) {
-  if (!p) return '';
-  return p.startsWith('../') ? '/' + p.slice(3) : p;
-}
-
-function findChapterIndex(chapters, t) {
-  let idx = 0;
-  for (let i = 0; i < chapters.length; i++) {
-    if (chapters[i].time <= t) idx = i;
-    else break;
-  }
-  return idx;
-}
+import {
+  fmt,
+  resolveAsset,
+  findChapterIndex,
+  timeAtWordIndex,
+  chunkIndexAtWord,
+} from '../lib/playerUtils.js';
+import { useTranscript } from '../hooks/useTranscript.js';
 
 export default function PlayerView() {
   const { slug = 'the-brand-age' } = useParams();
@@ -253,6 +39,7 @@ export default function PlayerView() {
   const sideTranscriptScrollRef = useRef(null);
   const sideActiveWordRef = useRef(null);
   const userScrollUntilRef = useRef(0);
+  const lastProgressSaveRef = useRef(0);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -329,20 +116,15 @@ export default function PlayerView() {
     return () => { cancelled = true; };
   }, [slug]);
 
-  // Transcript + word timings now arrive inline on the guide payload —
-  // parse / normalize once per guide load instead of refetching them.
-  const transcriptParas = useMemo(
-    () => (typeof guide?.transcript === 'string' && guide.transcript.length)
-      ? parseTranscript(guide.transcript)
-      : null,
-    [guide?.transcript]
-  );
-  const timingWords = useMemo(() => {
-    const t = guide?.timing;
-    if (!t) return null;
-    if (Array.isArray(t)) return t;
-    return Array.isArray(t.words) ? t.words : null;
-  }, [guide?.timing]);
+  const {
+    transcriptParas,
+    totalWords,
+    anchors,
+    wordStartTimes,
+    captionChunks,
+    activeWord,
+    activeCaption,
+  } = useTranscript(guide, duration, current, captionsOn);
 
   useEffect(() => {
     if (!playing) return;
@@ -412,41 +194,7 @@ export default function PlayerView() {
     togglePlay();
   }
 
-  const totalWords = useMemo(
-    () => (transcriptParas ? transcriptParas.reduce((n, p) => n + p.words.length, 0) : 0),
-    [transcriptParas]
-  );
-
-  const anchors = useMemo(
-    () => buildAnchors(transcriptParas, guide?.chapters, duration),
-    [transcriptParas, guide?.chapters, duration]
-  );
-
-  const wordStartTimes = useMemo(
-    () => alignTimings(transcriptParas, timingWords),
-    [transcriptParas, timingWords]
-  );
-
-  const captionChunks = useMemo(
-    () => buildCaptionChunks(transcriptParas),
-    [transcriptParas]
-  );
-
-  const activeWord = useMemo(() => {
-    if (!totalWords) return -1;
-    const offset = guide?.timingOffset || 0;
-    const w = wordStartTimes
-      ? wordIndexFromTimes(wordStartTimes, current - offset)
-      : wordIndexAtTime(anchors, current);
-    return Math.max(0, Math.min(totalWords - 1, w));
-  }, [current, anchors, wordStartTimes, totalWords, guide?.timingOffset]);
-
-  const activeCaption = useMemo(() => {
-    if (!captionsOn || !captionChunks?.length || activeWord < 0) return null;
-    const i = chunkIndexAtWord(captionChunks, activeWord);
-    return captionChunks[i] || null;
-  }, [captionsOn, captionChunks, activeWord]);
-
+  // Note: transcriptParas, anchors, activeWord, etc. now come from useTranscript hook
   function toggleCaptions() {
     setCaptionsOn(v => {
       const next = !v;
@@ -860,14 +608,38 @@ export default function PlayerView() {
             src={resolveAsset(guide.audio)}
             style={{ display: 'none' }}
             onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
-            onEnded={() => setPlaying(false)}
-            onLoadedMetadata={e => setDuration(e.currentTarget.duration || guide.duration || 0)}
+            onPause={() => {
+              setPlaying(false);
+              const a = audioRef.current;
+              if (a) {
+                try { localStorage.setItem(`pg.progress.${slug}`, a.currentTime); } catch {}
+              }
+            }}
+            onEnded={() => {
+              setPlaying(false);
+              try { localStorage.removeItem(`pg.progress.${slug}`); } catch {}
+            }}
+            onLoadedMetadata={e => {
+              setDuration(e.currentTarget.duration || guide.duration || 0);
+              // Restore last position from localStorage (no auth path)
+              const saved = parseFloat(localStorage.getItem(`pg.progress.${slug}`) || '0');
+              const dur = e.currentTarget.duration || guide.duration || 0;
+              if (saved > 1 && saved < dur - 5) {
+                e.currentTarget.currentTime = saved;
+              }
+            }}
             onTimeUpdate={e => {
               const t = e.currentTarget.currentTime || 0;
               setCurrent(t);
               const i = findChapterIndex(chapters, t);
               if (i !== activeIdx) setActiveIdx(i);
+
+              // Throttle progress save to localStorage (~every 5s)
+              const now = Date.now();
+              if (now - lastProgressSaveRef.current > 5000) {
+                lastProgressSaveRef.current = now;
+                try { localStorage.setItem(`pg.progress.${slug}`, t); } catch {}
+              }
             }}
           />
         </div>

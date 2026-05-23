@@ -6,6 +6,16 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.40.0
+
+  Add favicon and PWA icon
+  Support kind filters
+  Enhance create flow
+  Extract useTranscript hook
+  Refactor PlayerView
+  Update LibraryView and backend
+  Bump version to 0.40.0
+
 0.39.1
   Remove root redirect
 

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-labelledby="title">
+  <title>Book Player</title>
+  <!-- Book base / cover (deep navy) -->
+  <rect x="2" y="3" width="20" height="18" rx="2" ry="2" fill="#1e3a8a"/>
+  <!-- Left page (cream) -->
+  <rect x="3" y="4" width="8.5" height="16" rx="1" fill="#fefce8"/>
+  <!-- Right page (cream) -->
+  <rect x="12.5" y="4" width="8.5" height="16" rx="1" fill="#fefce8"/>
+  <!-- Spine line -->
+  <line x1="12" y1="4" x2="12" y2="20" stroke="#1e3a8a" stroke-width="0.75"/>
+  <!-- Play triangle on left page -->
+  <path d="M5.5 8.5 L5.5 15.5 L10.5 12 Z" fill="#3b82f6"/>
+  <!-- Audio waveform on right page -->
+  <rect x="14.5" y="10" width="1.2" height="4" rx="0.6" fill="#3b82f6"/>
+  <rect x="16.2" y="8.5" width="1.2" height="7" rx="0.6" fill="#3b82f6"/>
+  <rect x="17.9" y="9" width="1.2" height="6" rx="0.6" fill="#3b82f6"/>
+  <rect x="19.6" y="10.5" width="1.2" height="3" rx="0.6" fill="#3b82f6"/>
+</svg>

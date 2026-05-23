@@ -1,5 +1,5 @@
 {
-  "version": "0.38.0",
+  "version": "0.40.0",
   "design": {
     "baseColor": "neutral",
     "radius": "medium",
@@ -11,7 +11,7 @@
   "tagline": "Essays and books with live word-synced transcripts and chapter visuals",
   "cta": "Browse Library",
   "ctaHeading": "Start Listening",
-  "noLogin": false,
+  "noLogin": true,
   "authOverlay": true,
   "sidebarCollapsed": true,
   "hideSidebar": true,
