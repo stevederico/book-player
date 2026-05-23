@@ -6,6 +6,12 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.49.0
+
+  Convert TranscriptView Tailwind
+  Drop transcript-para CSS
+  Word state via data-attrs
+
 0.48.0
 
   Convert GuideProgress Tailwind

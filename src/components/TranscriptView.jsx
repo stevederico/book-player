@@ -81,9 +81,12 @@ export default function TranscriptView({
   if (!paras?.length) return null;
 
   return (
-    <div ref={containerRef} className={`transcript-content ${className}`.trim()}>
+    <div ref={containerRef} className={className || undefined}>
       {paras.map((p, pi) => (
-        <p key={pi} className="transcript-para">
+        <p
+          key={pi}
+          className="font-['Literata',Charter,Georgia,serif] text-[1.15rem] leading-[1.55] text-foreground mx-auto mb-[0.85em] max-w-[65ch] text-pretty first:mt-0"
+        >
           {p.words.map((w, wi) => {
             const isActive = w.index === activeWord;
             const isPast = w.index < activeWord;
@@ -96,9 +99,12 @@ export default function TranscriptView({
               <span
                 key={wi}
                 ref={isActive ? activeRef : null}
-                className={`tw${isActive ? ' active' : ''}${isPast ? ' past' : ''}${isNoteHighlighted ? ' note-highlight' : ''}`}
                 data-idx={w.index}
+                data-active={isActive || undefined}
+                data-past={isPast || undefined}
+                data-note={isNoteHighlighted || undefined}
                 onClick={() => onWordClick?.(w.index)}
+                className="tw cursor-pointer rounded-[2px] transition-colors duration-[120ms] hover:bg-foreground/5 data-[active]:bg-[rgba(120,200,255,0.22)] data-[note]:bg-[rgba(250,204,21,0.55)] data-[note]:shadow-[0_0_0_1px_rgba(234,179,8,0.6)] data-[active]:data-[note]:shadow-[0_0_0_1px_rgba(120,200,255,0.9),inset_0_0_0_9999px_rgba(120,200,255,0.18)]"
               >
                 {w.text}{wi < p.words.length - 1 ? ' ' : ''}
               </span>

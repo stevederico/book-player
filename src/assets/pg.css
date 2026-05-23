@@ -1005,18 +1005,6 @@ h1 {
   background: var(--scroll-thumb);
   border-radius: 3px;
 }
-.hero-transcript-pane .transcript-para {
-  font-size: 1.15rem;
-  line-height: 1.55;
-  margin: 0 auto 0.85em;
-  max-width: 65ch;
-  color: var(--text);
-  letter-spacing: 0;
-  text-wrap: pretty;
-}
-.hero-transcript-pane .transcript-para:first-child {
-  margin-top: 0;
-}
 @media (max-width: 640px) {
   .hero-split { grid-template-columns: 1fr; }
   .hero-transcript-pane { display: none; }
@@ -1517,34 +1505,6 @@ h1 {
   color: var(--muted);
   font-size: 0.95rem;
   padding: 14px 6px;
-}
-.transcript-para {
-  font-size: 1.15rem;
-  line-height: 1.55;
-  color: var(--text);
-  margin: 0 auto 0.85em;
-  max-width: 65ch;
-  letter-spacing: 0;
-  text-wrap: pretty;
-}
-.tw {
-  cursor: pointer;
-  border-radius: 2px;
-  transition: background-color 0.12s ease;
-}
-.tw:hover { background-color: var(--overlay-hover); }
-.tw.active {
-  background-color: rgba(120, 200, 255, 0.22);
-}
-.tw.note-highlight {
-  background-color: rgba(250, 204, 21, 0.55); /* bright yellow highlighter */
-  border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.6);
-}
-/* When the active word lies inside a highlighted range, keep the karaoke cue visible
-   by stacking the active background on top of the highlight via a brighter outline. */
-.tw.note-highlight.active {
-  box-shadow: 0 0 0 1px rgba(120, 200, 255, 0.9), inset 0 0 0 9999px rgba(120, 200, 255, 0.18);
 }
 
 /* Summary panel */
