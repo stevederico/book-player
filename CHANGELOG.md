@@ -6,6 +6,11 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.65.0
+
+  Fix double-toggle play
+  Restore overlay marker
+
 0.64.0
 
   Fix play button click

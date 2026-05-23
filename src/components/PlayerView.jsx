@@ -357,7 +357,9 @@ export default function PlayerView() {
   }
 
   function handleHeroClick(e) {
-    if (e.target.closest('.overlay')) return;
+    // Don't toggle play when the click came from inside the controls overlay
+    // (its own buttons handle their own actions; otherwise we'd double-toggle).
+    if (e.target.closest('[data-overlay]')) return;
     togglePlay();
   }
 
@@ -686,7 +688,7 @@ export default function PlayerView() {
               )
             )}
 
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-12 text-foreground pointer-events-none opacity-0 transition-opacity duration-200 z-[5] group-hover/hero:opacity-100 group-data-[controls=visible]/hero:opacity-100">
+            <div data-overlay className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-12 text-foreground pointer-events-none opacity-0 transition-opacity duration-200 z-[5] group-hover/hero:opacity-100 group-data-[controls=visible]/hero:opacity-100">
               <div
                 ref={timelineRef}
                 onPointerDown={handleTimelinePointerDown}
