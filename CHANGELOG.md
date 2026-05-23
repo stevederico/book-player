@@ -6,6 +6,12 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.71.0
+
+  Add text size setting
+  Inherit transcript font
+  Scale with viewport
+
 0.70.0
 
   Preserve punctuation tokens

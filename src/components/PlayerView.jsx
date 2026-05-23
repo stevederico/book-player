@@ -22,6 +22,15 @@ import {
   SheetTitle,
 } from '@stevederico/skateboard-ui/shadcn/ui/sheet';
 
+// Side transcript font-size class per user-chosen size. All three scale with
+// viewport width via clamp() so the same setting reads well in a 1440 window
+// and a 4K fullscreen — the min/max bounds differ per size tier.
+const TRANSCRIPT_SIZE_CLS = {
+  small: 'text-[clamp(0.95rem,1.1vw,1.25rem)]',
+  medium: 'text-[clamp(1.2rem,1.9vw,2.1rem)]',
+  large: 'text-[clamp(1.3rem,2.2vw,2.5rem)]',
+};
+
 export default function PlayerView() {
   const { slug = 'the-brand-age' } = useParams();
   const [searchParams] = useSearchParams();
@@ -42,6 +51,16 @@ export default function PlayerView() {
   const [splitTranscript, setSplitTranscript] = useState(() => {
     try { return localStorage.getItem('pg.split') === '1'; } catch { return false; }
   });
+  const [transcriptSize, setTranscriptSize] = useState(() => {
+    try {
+      const v = localStorage.getItem('pg.transcriptSize');
+      return v === 'small' || v === 'medium' || v === 'large' ? v : 'medium';
+    } catch { return 'medium'; }
+  });
+  const changeTranscriptSize = (size) => {
+    setTranscriptSize(size);
+    try { localStorage.setItem('pg.transcriptSize', size); } catch {}
+  };
   const [controlsVisible, setControlsVisible] = useState(false);
   const hideTimerRef = useRef(null);
   const pointerInsideRef = useRef(false);
@@ -668,7 +687,7 @@ export default function PlayerView() {
                 <div
                   ref={sideTranscriptScrollRef}
                   onClick={e => e.stopPropagation()}
-                  className="relative w-full h-full overflow-y-auto bg-[var(--hero-transcript-bg)] py-10 px-[clamp(24px,6vw,56px)] pb-[60vh] font-['Literata',Charter,Georgia,serif] text-[1.15rem] leading-[1.55] text-foreground text-left cursor-default scrollbar-thin"
+                  className={`relative w-full h-full overflow-y-auto bg-[var(--hero-transcript-bg)] py-10 px-[clamp(24px,6vw,56px)] pb-[60vh] font-['Literata',Charter,Georgia,serif] ${TRANSCRIPT_SIZE_CLS[transcriptSize]} leading-[1.55] text-foreground text-left cursor-default scrollbar-thin`}
                 >
                   <TranscriptView
                     paras={transcriptParas}
@@ -831,6 +850,8 @@ export default function PlayerView() {
                               settingsPage={settingsPage}
                               setSettingsPage={setSettingsPage}
                               transcriptParas={transcriptParas}
+                              transcriptSize={transcriptSize}
+                              changeTranscriptSize={changeTranscriptSize}
                             />
                           </div>
                         </SheetContent>
@@ -850,6 +871,8 @@ export default function PlayerView() {
                         settingsPage={settingsPage}
                         setSettingsPage={setSettingsPage}
                         transcriptParas={transcriptParas}
+                        transcriptSize={transcriptSize}
+                        changeTranscriptSize={changeTranscriptSize}
                       />
                     ) : null}
                   </div>

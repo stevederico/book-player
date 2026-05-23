@@ -85,7 +85,7 @@ export default function TranscriptView({
       {paras.map((p, pi) => (
         <p
           key={pi}
-          className="font-['Literata',Charter,Georgia,serif] text-[1.15rem] leading-[1.55] text-foreground mx-auto mb-[0.85em] max-w-[65ch] text-pretty first:mt-0 [content-visibility:auto] [contain-intrinsic-size:0_120px]"
+          className="font-['Literata',Charter,Georgia,serif] text-[length:inherit] leading-[1.55] text-foreground mx-auto mb-[0.85em] max-w-[65ch] text-pretty first:mt-0 [content-visibility:auto] [contain-intrinsic-size:0_120px]"
         >
           {p.words.map((w, wi) => {
             const isActive = w.index === activeWord;

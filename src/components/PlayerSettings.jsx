@@ -34,6 +34,8 @@ function Toggle({ on }) {
  * Supports a sub-page for Playback speed; direct toggles for transcript and captions.
  * Now includes dark/light mode switch using the app's ThemeProvider.
  */
+const TRANSCRIPT_SIZE_LABEL = { small: 'Small', medium: 'Medium', large: 'Large' };
+
 export default function PlayerSettings({
   setMenuOpen,
   splitTranscript,
@@ -47,6 +49,8 @@ export default function PlayerSettings({
   settingsPage,
   setSettingsPage,
   transcriptParas,
+  transcriptSize = 'medium',
+  changeTranscriptSize,
   isMobile = false,
 }) {
   return (
@@ -114,6 +118,23 @@ export default function PlayerSettings({
             <Toggle on={isDarkMode} />
           </button>
 
+          {transcriptParas && changeTranscriptSize && (
+            <button className={ROW_CLS} role="menuitem" onClick={() => setSettingsPage('textSize')}>
+              <span className="inline-flex items-center justify-center text-foreground">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 7V5h16v2" />
+                  <path d="M9 19h6" />
+                  <path d="M12 5v14" />
+                </svg>
+              </span>
+              <span className="font-medium tracking-[0.01em]">Text size</span>
+              <span className="text-foreground/70 text-[0.9rem]">{TRANSCRIPT_SIZE_LABEL[transcriptSize]}</span>
+              <svg className="-ml-1 text-muted-foreground" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
+          )}
+
           <button className={ROW_CLS} role="menuitem" onClick={() => setSettingsPage('speed')}>
             <span className="inline-flex items-center justify-center text-foreground">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -129,6 +150,36 @@ export default function PlayerSettings({
               <path d="m9 18 6-6-6-6" />
             </svg>
           </button>
+        </>
+      )}
+
+      {settingsPage === 'textSize' && (
+        <>
+          <button className={SUB_HEADER_CLS} onClick={() => setSettingsPage('main')}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            <span>Text size</span>
+          </button>
+          {['small', 'medium', 'large'].map(size => (
+            <button
+              key={size}
+              role="menuitemradio"
+              aria-checked={transcriptSize === size}
+              data-selected={transcriptSize === size || undefined}
+              className={OPTION_CLS}
+              onClick={() => { changeTranscriptSize?.(size); setMenuOpen(false); }}
+            >
+              <span className="w-[18px] inline-flex items-center justify-center text-foreground" aria-hidden="true">
+                {transcriptSize === size && (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                )}
+              </span>
+              {TRANSCRIPT_SIZE_LABEL[size]}
+            </button>
+          ))}
         </>
       )}
 
