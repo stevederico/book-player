@@ -6,6 +6,12 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.52.0
+
+  Convert PlayerSettings Tailwind
+  Toggle via data-attrs
+  Drop settings panel CSS
+
 0.51.0
 
   Convert modal Tailwind

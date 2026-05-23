@@ -1,26 +1,35 @@
 import React from 'react';
 
+const PANEL_CLS =
+  "absolute bottom-[calc(100%+10px)] right-0 min-w-[300px] bg-[var(--glass-bg)] backdrop-blur-[22px] backdrop-saturate-[1.6] border border-[var(--glass-border)] rounded-2xl py-1.5 px-0 z-20 shadow-[0_16px_48px_rgba(0,0,0,0.55)] text-foreground font-['Manrope',system-ui,sans-serif] overflow-hidden";
+
+const ROW_CLS =
+  "grid grid-cols-[28px_1fr_auto_auto] items-center gap-x-3.5 w-full bg-transparent border-none text-inherit text-left py-3 px-[18px] text-[0.95rem] font-medium cursor-pointer transition-colors duration-150 hover:bg-foreground/5";
+
+const SUB_HEADER_CLS =
+  "flex items-center gap-2.5 w-full bg-transparent border-none text-inherit text-left py-3.5 px-[18px] text-[0.95rem] font-semibold cursor-pointer border-b border-[var(--glass-border)] mb-1 transition-colors duration-150 hover:bg-foreground/5";
+
+const OPTION_CLS =
+  "flex items-center gap-3.5 w-full bg-transparent border-none text-inherit text-left py-2.5 px-[18px] text-[0.92rem] font-medium cursor-pointer transition-colors duration-150 hover:bg-foreground/5";
+
+const TOGGLE_TRACK_CLS =
+  "w-9 h-5 bg-[var(--toggle-bg)] data-[on]:bg-[var(--toggle-bg-on)] rounded-full relative transition-colors duration-200 shrink-0 inline-block";
+
+const TOGGLE_KNOB_CLS =
+  "absolute top-0.5 left-0.5 size-4 rounded-full bg-[var(--knob)] data-[on]:bg-[var(--knob-on)] data-[on]:translate-x-4 transition-[transform,background-color] duration-200";
+
+function Toggle({ on }) {
+  return (
+    <span data-on={on || undefined} className={TOGGLE_TRACK_CLS} aria-hidden="true">
+      <span data-on={on || undefined} className={TOGGLE_KNOB_CLS} />
+    </span>
+  );
+}
+
 /**
  * YouTube-style settings panel for the audio player.
  * Supports sub-pages for View mode and Playback speed; direct toggles for transcript and captions.
  * Now includes dark/light mode switch using the app's ThemeProvider.
- *
- * @param {Object} props
- * @param {string} props.mode - Current view mode ('real' | 'generated')
- * @param {Function} props.setMode
- * @param {Function} props.setMenuOpen
- * @param {boolean} [props.splitTranscript]
- * @param {Function} [props.toggleSplitTranscript]
- * @param {boolean} props.captionsOn
- * @param {Function} props.toggleCaptions
- * @param {boolean} props.isDarkMode - Resolved dark theme active
- * @param {Function} props.toggleTheme - Toggles between explicit light/dark
- * @param {number} props.rate
- * @param {Function} props.changeRate
- * @param {string} props.settingsPage - 'main' | 'mode' | 'speed'
- * @param {Function} props.setSettingsPage
- * @param {boolean} [props.transcriptParas]
- * @returns {JSX.Element}
  */
 export default function PlayerSettings({
   mode,
@@ -39,77 +48,71 @@ export default function PlayerSettings({
   transcriptParas,
 }) {
   return (
-    <div className="settings-panel" role="menu">
+    <div className={PANEL_CLS} role="menu">
       {settingsPage === 'main' && (
         <>
-          <button
-            className="settings-row"
-            role="menuitem"
-            onClick={() => setSettingsPage('mode')}
-          >
-            <span className="settings-row-icon">
+          <button className={ROW_CLS} role="menuitem" onClick={() => setSettingsPage('mode')}>
+            <span className="inline-flex items-center justify-center text-foreground">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <rect x="3" y="5" width="18" height="14" rx="2" />
                 <circle cx="9" cy="11" r="2" />
                 <path d="m21 17-4-4-6 6" />
               </svg>
             </span>
-            <span className="settings-row-label">View</span>
-            <span className="settings-row-value">
+            <span className="font-medium tracking-[0.01em]">View</span>
+            <span className="text-foreground/70 text-[0.9rem]">
               {mode[0].toUpperCase() + mode.slice(1)}
             </span>
-            <svg className="settings-row-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg className="-ml-1 text-muted-foreground" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="m9 18 6-6-6-6" />
             </svg>
           </button>
 
           {transcriptParas && (
             <button
-              className="settings-row"
+              className={ROW_CLS}
               role="menuitemcheckbox"
               aria-checked={splitTranscript}
               onClick={toggleSplitTranscript}
             >
-            <span className="settings-row-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="3" y="5" width="18" height="14" rx="2" />
-                <path d="M14 5v14" />
-                <path d="M16.5 9.5h3" />
-                <path d="M16.5 12h3" />
-                <path d="M16.5 14.5h3" />
-              </svg>
-            </span>
-            <span className="settings-row-label">Show transcript</span>
-            <span className={`settings-toggle${splitTranscript ? ' on' : ''}`} aria-hidden="true">
-              <span className="settings-toggle-knob" />
-            </span>
-          </button>
+              <span className="inline-flex items-center justify-center text-foreground">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path d="M14 5v14" />
+                  <path d="M16.5 9.5h3" />
+                  <path d="M16.5 12h3" />
+                  <path d="M16.5 14.5h3" />
+                </svg>
+              </span>
+              <span className="font-medium tracking-[0.01em]">Show transcript</span>
+              <span />
+              <Toggle on={splitTranscript} />
+            </button>
           )}
 
           <button
-            className="settings-row"
+            className={ROW_CLS}
             role="menuitemcheckbox"
             aria-checked={captionsOn}
             onClick={toggleCaptions}
           >
-            <span className="settings-row-icon">
+            <span className="inline-flex items-center justify-center text-foreground">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M19 4H5a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3zM11 11.5H9.5v-.5h-2v2h2v-.5H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v2h2v-.5H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z" />
               </svg>
             </span>
-            <span className="settings-row-label">Captions</span>
-            <span className={`settings-toggle${captionsOn ? ' on' : ''}`} aria-hidden="true">
-              <span className="settings-toggle-knob" />
-            </span>
+            <span className="font-medium tracking-[0.01em]">Captions</span>
+            <span />
+            <Toggle on={captionsOn} />
           </button>
 
           <button
-            className="settings-row"
+            className={ROW_CLS}
             role="menuitemcheckbox"
             aria-checked={isDarkMode}
             onClick={toggleTheme}
           >
-            <span className="settings-row-icon">
+            <span className="inline-flex items-center justify-center text-foreground">
               {isDarkMode ? (
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
@@ -121,28 +124,23 @@ export default function PlayerSettings({
                 </svg>
               )}
             </span>
-            <span className="settings-row-label">Dark mode</span>
-            <span className={`settings-toggle${isDarkMode ? ' on' : ''}`} aria-hidden="true">
-              <span className="settings-toggle-knob" />
-            </span>
+            <span className="font-medium tracking-[0.01em]">Dark mode</span>
+            <span />
+            <Toggle on={isDarkMode} />
           </button>
 
-          <button
-            className="settings-row"
-            role="menuitem"
-            onClick={() => setSettingsPage('speed')}
-          >
-            <span className="settings-row-icon">
+          <button className={ROW_CLS} role="menuitem" onClick={() => setSettingsPage('speed')}>
+            <span className="inline-flex items-center justify-center text-foreground">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M12 22a10 10 0 1 0-10-10" />
                 <path d="m12 12 4-4" />
               </svg>
             </span>
-            <span className="settings-row-label">Playback speed</span>
-            <span className="settings-row-value">
+            <span className="font-medium tracking-[0.01em]">Playback speed</span>
+            <span className="text-foreground/70 text-[0.9rem]">
               {rate === 1 ? 'Normal' : rate + '×'}
             </span>
-            <svg className="settings-row-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg className="-ml-1 text-muted-foreground" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="m9 18 6-6-6-6" />
             </svg>
           </button>
@@ -151,7 +149,7 @@ export default function PlayerSettings({
 
       {settingsPage === 'mode' && (
         <>
-          <button className="settings-sub-header" onClick={() => setSettingsPage('main')}>
+          <button className={SUB_HEADER_CLS} onClick={() => setSettingsPage('main')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="m15 18-6-6 6-6" />
             </svg>
@@ -162,10 +160,11 @@ export default function PlayerSettings({
               key={m}
               role="menuitemradio"
               aria-checked={mode === m}
-              className={`settings-option${mode === m ? ' selected' : ''}`}
+              data-selected={mode === m || undefined}
+              className={OPTION_CLS}
               onClick={() => { setMode(m); setMenuOpen(false); }}
             >
-              <span className="settings-option-check" aria-hidden="true">
+              <span className="w-[18px] inline-flex items-center justify-center text-foreground" aria-hidden="true">
                 {mode === m && (
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M20 6 9 17l-5-5" />
@@ -180,7 +179,7 @@ export default function PlayerSettings({
 
       {settingsPage === 'speed' && (
         <>
-          <button className="settings-sub-header" onClick={() => setSettingsPage('main')}>
+          <button className={SUB_HEADER_CLS} onClick={() => setSettingsPage('main')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="m15 18-6-6 6-6" />
             </svg>
@@ -191,10 +190,11 @@ export default function PlayerSettings({
               key={r}
               role="menuitemradio"
               aria-checked={rate === r}
-              className={`settings-option${rate === r ? ' selected' : ''}`}
+              data-selected={rate === r || undefined}
+              className={OPTION_CLS}
               onClick={() => { changeRate(r); setMenuOpen(false); }}
             >
-              <span className="settings-option-check" aria-hidden="true">
+              <span className="w-[18px] inline-flex items-center justify-center text-foreground" aria-hidden="true">
                 {rate === r && (
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M20 6 9 17l-5-5" />
