@@ -6,6 +6,13 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.60.0
+
+  Library mobile grid
+  Header wraps search
+  Modal full-screen mobile
+  URL keyboard hints
+
 0.59.0
 
   Add useIsMobile hook

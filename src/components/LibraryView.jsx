@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import GuideProgress from './GuideProgress.jsx';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@stevederico/skateboard-ui/shadcn/ui/dialog';
 
 function fmtDuration(sec) {
   if (!sec) return '';
@@ -95,15 +103,7 @@ export default function LibraryView() {
     return () => clearInterval(id);
   }, [guides]);
 
-  useEffect(() => {
-    function onKey(e) {
-      if (e.key !== 'Escape') return;
-      if (modalOpen) setModalOpen(false);
-      if (pendingDelete && !deletingSlug) setPendingDelete(null);
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [modalOpen, pendingDelete, deletingSlug]);
+  // Dialog handles Escape + outside click internally via onOpenChange.
 
   // Auto-focus the correct input when modal opens or when switching between URL/Text mode
   useEffect(() => {
@@ -306,7 +306,7 @@ export default function LibraryView() {
 
   return (
     <>
-      <header className="sticky top-0 z-30 bg-[var(--nav-bg)] backdrop-blur-md backdrop-saturate-150 border-b border-border grid grid-cols-[auto_1fr_auto] items-center gap-6 py-3.5 px-7">
+      <header className="sticky top-0 z-30 bg-[var(--nav-bg)] backdrop-blur-md backdrop-saturate-150 border-b border-border grid grid-cols-[auto_auto] sm:grid-cols-[auto_1fr_auto] grid-rows-[auto_auto] sm:grid-rows-1 items-center gap-x-3 sm:gap-x-6 gap-y-3 py-3 sm:py-3.5 px-4 sm:px-7">
         <div className="flex items-center gap-2.5">
           <span
             aria-hidden="true"
@@ -318,7 +318,7 @@ export default function LibraryView() {
           </span>
           <span className="font-['Bricolage_Grotesque'] font-extrabold text-[1.1rem] tracking-[-0.03em]">Book Player</span>
         </div>
-        <div className="max-w-[560px] w-full justify-self-center">
+        <div className="max-w-[560px] w-full sm:justify-self-center col-span-2 sm:col-span-1 row-start-2 sm:row-start-1 order-3 sm:order-none">
           <input
             type="search"
             value={query}
@@ -330,12 +330,12 @@ export default function LibraryView() {
         <button
           onClick={() => { resetCreateForm(); setModalOpen(true); }}
           aria-label="Create new guide"
-          className="inline-flex items-center gap-2 bg-[var(--accent)] text-white font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer shadow-[0_6px_20px_rgba(var(--accent-glow),0.35)] transition-[transform,box-shadow,background-color] duration-150 hover:bg-[var(--accent-hot)] hover:-translate-y-px hover:shadow-[0_10px_26px_rgba(var(--accent-glow),0.5)] active:translate-y-0"
+          className="justify-self-end inline-flex items-center gap-2 bg-[var(--accent)] text-white font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer shadow-[0_6px_20px_rgba(var(--accent-glow),0.35)] transition-[transform,box-shadow,background-color] duration-150 hover:bg-[var(--accent-hot)] hover:-translate-y-px hover:shadow-[0_10px_26px_rgba(var(--accent-glow),0.5)] active:translate-y-0"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          <span>Create</span>
+          <span className="hidden sm:inline">Create</span>
         </button>
       </header>
 
@@ -345,7 +345,7 @@ export default function LibraryView() {
           <div className="text-muted-foreground">Tap <strong>Create</strong> to add one.</div>
         </div>
       ) : (
-        <main className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-[18px] gap-y-7 px-7 pt-5 pb-[60px]">
+        <main className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-x-4 sm:gap-x-[18px] gap-y-6 sm:gap-y-7 px-4 sm:px-7 pt-5 pb-[60px]">
           {filtered.map(g => {
             const pipe = g.jobs?.pipeline;
             const processing = pipe?.status === 'running';
@@ -440,149 +440,153 @@ export default function LibraryView() {
         </main>
       )}
 
-      <div
-        hidden={!modalOpen}
-        onClick={e => { if (e.target === e.currentTarget) { setModalOpen(false); resetCreateForm(); } }}
-        className="fixed inset-0 bg-black/70 backdrop-blur-[6px] z-[100] flex items-center justify-center p-6 animate-[fade-in_150ms_ease]"
+      <Dialog
+        open={modalOpen}
+        onOpenChange={open => { if (!open) { setModalOpen(false); resetCreateForm(); } }}
       >
-        <form
-          autoComplete="off"
-          onSubmit={handleSubmit}
-          className="w-full max-w-[560px] bg-card border border-border rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col animate-[pop-in_180ms_ease]"
+        <DialogContent
+          showCloseButton={false}
+          className="bg-card border-border p-0 gap-0 overflow-hidden sm:max-w-[560px] sm:rounded-2xl max-sm:!w-screen max-sm:!max-w-none max-sm:!h-[100dvh] max-sm:!rounded-none max-sm:!border-0 max-sm:!top-0 max-sm:!left-0 max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!ring-0 max-sm:flex max-sm:flex-col"
         >
-          <header className="flex items-center justify-between py-4 px-5 border-b border-border">
-            <h2 className="font-['Bricolage_Grotesque'] font-extrabold text-[1.15rem] tracking-[-0.02em] m-0">
-              {createdGuide ? 'Guide created' : 'New guide'}
-            </h2>
-            <button
-              type="button"
-              onClick={() => { setModalOpen(false); resetCreateForm(); }}
-              aria-label="Close"
-              className="bg-transparent border-none text-muted-foreground cursor-pointer p-1 rounded-md transition-colors hover:text-foreground hover:bg-muted"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-            </button>
-          </header>
-          <div className="px-5 py-4 flex flex-col gap-3.5 max-h-[70vh] overflow-y-auto">
-            {createdGuide ? (
-              <GuideProgress
-                slug={createdGuide.slug}
-                guide={createdGuide}
-                onRefresh={refreshCreatedGuide}
-              />
-            ) : (
-            <>
-            {/* Pure URL or Text flow — nothing else */}
-            <div className="flex bg-muted rounded-full p-[3px] mb-4 border border-border">
-              {[
-                { mode: 'url',  label: 'From URL' },
-                { mode: 'text', label: 'Paste Text' },
-              ].map(({ mode, label }) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setSourceMode(mode)}
-                  data-active={sourceMode === mode || undefined}
-                  className="flex-1 py-2 px-4 text-[13px] font-semibold rounded-full border-none bg-transparent text-muted-foreground cursor-pointer transition-colors hover:text-foreground data-[active]:bg-accent data-[active]:text-foreground data-[active]:shadow-[0_1px_2px_rgba(0,0,0,0.3)]"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {sourceMode === 'url' ? (
-              <div className="mb-4">
-                <input
-                  ref={urlInputRef}
-                  type="url"
-                  value={sourceUrl}
-                  onChange={e => setSourceUrl(e.target.value)}
-                  placeholder="https://example.com/article"
-                  className="w-full border border-border bg-background text-foreground rounded-lg p-3 text-[15px] outline-none transition-colors focus:border-[var(--accent)]"
+          <form autoComplete="off" onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 max-sm:h-full">
+            <DialogHeader className="flex-row items-center justify-between py-4 px-5 border-b border-border gap-0">
+              <DialogTitle className="font-['Bricolage_Grotesque'] font-extrabold text-[1.15rem] tracking-[-0.02em] m-0">
+                {createdGuide ? 'Guide created' : 'New guide'}
+              </DialogTitle>
+              <button
+                type="button"
+                onClick={() => { setModalOpen(false); resetCreateForm(); }}
+                aria-label="Close"
+                className="bg-transparent border-none text-muted-foreground cursor-pointer p-1 rounded-md transition-colors hover:text-foreground hover:bg-muted"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            </DialogHeader>
+            <div className="px-5 py-4 flex flex-col gap-3.5 sm:max-h-[70vh] flex-1 overflow-y-auto">
+              {createdGuide ? (
+                <GuideProgress
+                  slug={createdGuide.slug}
+                  guide={createdGuide}
+                  onRefresh={refreshCreatedGuide}
                 />
-              </div>
-            ) : (
-              <div className="mb-4">
-                <textarea
-                  ref={textInputRef}
-                  value={pastedText}
-                  onChange={e => setPastedText(e.target.value)}
-                  rows={10}
-                  placeholder="Paste the full article or essay text here..."
-                  className="w-full border border-border bg-background text-foreground rounded-lg p-3 text-[15px] outline-none transition-colors focus:border-[var(--accent)] min-h-[180px] resize-y leading-normal"
-                />
-              </div>
-            )}
-
-            {sourceData.transcript && (
-              <div className="mt-4 flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-[0.04em]">Title</label>
-                <input
-                  type="text"
-                  value={sourceData.title}
-                  onChange={e => setSourceData(d => ({ ...d, title: e.target.value }))}
-                  placeholder="Untitled Guide"
-                  className="w-full border border-border bg-background text-foreground rounded-lg px-3 py-2.5 text-[15px] outline-none transition-colors focus:border-[var(--accent)]"
-                />
-              </div>
-            )}
-            {submitError ? (
-              <div role="alert" className="text-destructive text-[13px] mt-2">
-                {submitError}
-              </div>
-            ) : null}
-            </>
-            )}
-          </div>
-          <footer className="flex justify-end gap-2.5 pt-3.5 pb-4 px-5 border-t border-border bg-background">
-            {createdGuide ? (
+              ) : (
               <>
+              {/* Pure URL or Text flow — nothing else */}
+              <div className="flex bg-muted rounded-full p-[3px] mb-4 border border-border">
+                {[
+                  { mode: 'url',  label: 'From URL' },
+                  { mode: 'text', label: 'Paste Text' },
+                ].map(({ mode, label }) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setSourceMode(mode)}
+                    data-active={sourceMode === mode || undefined}
+                    className="flex-1 py-2 px-4 text-[13px] font-semibold rounded-full border-none bg-transparent text-muted-foreground cursor-pointer transition-colors hover:text-foreground data-[active]:bg-accent data-[active]:text-foreground data-[active]:shadow-[0_1px_2px_rgba(0,0,0,0.3)]"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {sourceMode === 'url' ? (
+                <div className="mb-4">
+                  <input
+                    ref={urlInputRef}
+                    type="url"
+                    inputMode="url"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={sourceUrl}
+                    onChange={e => setSourceUrl(e.target.value)}
+                    placeholder="https://example.com/article"
+                    className="w-full border border-border bg-background text-foreground rounded-lg p-3 text-[15px] outline-none transition-colors focus:border-[var(--accent)]"
+                  />
+                </div>
+              ) : (
+                <div className="mb-4">
+                  <textarea
+                    ref={textInputRef}
+                    value={pastedText}
+                    onChange={e => setPastedText(e.target.value)}
+                    rows={10}
+                    placeholder="Paste the full article or essay text here..."
+                    className="w-full border border-border bg-background text-foreground rounded-lg p-3 text-[15px] outline-none transition-colors focus:border-[var(--accent)] min-h-[180px] resize-y leading-normal"
+                  />
+                </div>
+              )}
+
+              {sourceData.transcript && (
+                <div className="mt-4 flex flex-col gap-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-[0.04em]">Title</label>
+                  <input
+                    type="text"
+                    value={sourceData.title}
+                    onChange={e => setSourceData(d => ({ ...d, title: e.target.value }))}
+                    placeholder="Untitled Guide"
+                    className="w-full border border-border bg-background text-foreground rounded-lg px-3 py-2.5 text-[15px] outline-none transition-colors focus:border-[var(--accent)]"
+                  />
+                </div>
+              )}
+              {submitError ? (
+                <div role="alert" className="text-destructive text-[13px] mt-2">
+                  {submitError}
+                </div>
+              ) : null}
+              </>
+              )}
+            </div>
+            <DialogFooter className="flex-row justify-end gap-2.5 pt-3.5 pb-4 px-5 border-t border-border bg-background">
+              {createdGuide ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { setModalOpen(false); resetCreateForm(); }}
+                    className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-transparent text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const slug = createdGuide.slug;
+                      setModalOpen(false);
+                      resetCreateForm();
+                      navigate(`/app/${encodeURIComponent(slug)}`);
+                    }}
+                    className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-[var(--accent)] text-white shadow-[0_6px_20px_rgba(var(--accent-glow),0.35)] transition-colors hover:bg-[var(--accent-hot)] disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Open player
+                  </button>
+                </>
+              ) : (
                 <button
-                  type="button"
-                  onClick={() => { setModalOpen(false); resetCreateForm(); }}
-                  className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-transparent text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const slug = createdGuide.slug;
-                    setModalOpen(false);
-                    resetCreateForm();
-                    navigate(`/app/${encodeURIComponent(slug)}`);
-                  }}
+                  type="submit"
+                  disabled={submitting || (sourceMode === 'url' ? !sourceUrl.trim() : !pastedText.trim())}
                   className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-[var(--accent)] text-white shadow-[0_6px_20px_rgba(var(--accent-glow),0.35)] transition-colors hover:bg-[var(--accent-hot)] disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Open player
+                  {submitLabel}
                 </button>
-              </>
-            ) : (
-              <button
-                type="submit"
-                disabled={submitting || (sourceMode === 'url' ? !sourceUrl.trim() : !pastedText.trim())}
-                className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-[var(--accent)] text-white shadow-[0_6px_20px_rgba(var(--accent-glow),0.35)] transition-colors hover:bg-[var(--accent-hot)] disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {submitLabel}
-              </button>
-            )}
-          </footer>
-        </form>
-      </div>
+              )}
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
-      <div
-        hidden={!pendingDelete}
-        onClick={e => { if (e.target === e.currentTarget && !deletingSlug) setPendingDelete(null); }}
-        className="fixed inset-0 bg-black/70 backdrop-blur-[6px] z-[100] flex items-center justify-center p-6 animate-[fade-in_150ms_ease]"
+      <Dialog
+        open={!!pendingDelete}
+        onOpenChange={open => { if (!open && !deletingSlug) setPendingDelete(null); }}
       >
-        <div
-          role="alertdialog"
-          aria-labelledby="delete-title"
-          aria-describedby="delete-desc"
-          className="w-full max-w-[560px] bg-card border border-border rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col animate-[pop-in_180ms_ease]"
+        <DialogContent
+          showCloseButton={false}
+          className="bg-card border-border p-0 gap-0 overflow-hidden sm:max-w-[460px] sm:rounded-2xl"
         >
-          <header className="flex items-center justify-between py-4 px-5 border-b border-border">
-            <h2 id="delete-title" className="font-['Bricolage_Grotesque'] font-extrabold text-[1.15rem] tracking-[-0.02em] m-0">Delete guide?</h2>
+          <DialogHeader className="flex-row items-center justify-between py-4 px-5 border-b border-border gap-0">
+            <DialogTitle className="font-['Bricolage_Grotesque'] font-extrabold text-[1.15rem] tracking-[-0.02em] m-0">
+              Delete guide?
+            </DialogTitle>
             <button
               type="button"
               onClick={() => setPendingDelete(null)}
@@ -592,18 +596,18 @@ export default function LibraryView() {
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
-          </header>
+          </DialogHeader>
           <div className="px-5 py-4 flex flex-col gap-3.5">
-            <p id="delete-desc" className="m-0">
+            <DialogDescription className="m-0 text-foreground text-sm">
               <strong>{pendingDelete?.title}</strong> will be permanently removed. This can't be undone.
-            </p>
+            </DialogDescription>
             {deleteError ? (
               <div role="alert" className="text-destructive text-[13px] mt-3">
                 {deleteError}
               </div>
             ) : null}
           </div>
-          <footer className="flex justify-end gap-2.5 pt-3.5 pb-4 px-5 border-t border-border bg-background">
+          <DialogFooter className="flex-row justify-end gap-2.5 pt-3.5 pb-4 px-5 border-t border-border bg-background">
             <button
               type="button"
               onClick={() => setPendingDelete(null)}
@@ -620,9 +624,9 @@ export default function LibraryView() {
             >
               {deletingSlug ? 'Deleting…' : 'Delete'}
             </button>
-          </footer>
-        </div>
-      </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
