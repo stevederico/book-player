@@ -691,7 +691,7 @@ export default function PlayerView() {
                 ref={timelineRef}
                 onPointerDown={handleTimelinePointerDown}
                 onClick={e => e.stopPropagation()}
-                className="relative w-full h-[3px] bg-[var(--timeline-bg)] cursor-pointer z-10 mb-2 transition-[height] duration-150 pointer-events-none group-hover/hero:pointer-events-auto group-data-[controls=visible]/hero:pointer-events-auto group-focus-within/hero:pointer-events-auto group-data-[paused]/hero:pointer-events-auto group-hover/hero:h-1.5 group-data-[controls=visible]/hero:h-1.5 group-data-[paused]/hero:h-1.5"
+                className="relative w-full h-[3px] bg-[var(--timeline-bg)] cursor-pointer z-10 mb-2 transition-[height] duration-150 touch-none pointer-events-none group-hover/hero:pointer-events-auto group-data-[controls=visible]/hero:pointer-events-auto group-focus-within/hero:pointer-events-auto group-data-[paused]/hero:pointer-events-auto group-hover/hero:h-1.5 group-data-[controls=visible]/hero:h-1.5 group-data-[paused]/hero:h-1.5 pointer-coarse:pointer-events-auto pointer-coarse:h-[5px] before:content-[''] before:absolute before:inset-x-0 before:-inset-y-5"
               >
                 <div
                   style={{ width: pct + '%' }}
@@ -731,10 +731,10 @@ export default function PlayerView() {
                 </div>
                 <div
                   style={{ left: pct + '%' }}
-                  className="absolute top-1/2 size-3.5 bg-[var(--accent)] border-none rounded-full -translate-x-1/2 -translate-y-1/2 scale-0 shadow-[0_0_0_3px_rgba(var(--accent-glow),0.25)] opacity-0 transition-[opacity,transform] duration-150 pointer-events-none z-[12] group-hover/hero:opacity-100 group-hover/hero:scale-100 group-data-[controls=visible]/hero:opacity-100 group-data-[controls=visible]/hero:scale-100"
+                  className="absolute top-1/2 size-3.5 bg-[var(--accent)] border-none rounded-full -translate-x-1/2 -translate-y-1/2 scale-0 shadow-[0_0_0_3px_rgba(var(--accent-glow),0.25)] opacity-0 transition-[opacity,transform] duration-150 pointer-events-none z-[12] group-hover/hero:opacity-100 group-hover/hero:scale-100 group-data-[controls=visible]/hero:opacity-100 group-data-[controls=visible]/hero:scale-100 pointer-coarse:opacity-100 pointer-coarse:scale-100 pointer-coarse:size-4"
                 />
               </div>
-              <div className="px-4 pb-3.5 pointer-events-none group-hover/hero:pointer-events-auto group-data-[controls=visible]/hero:pointer-events-auto">
+              <div className="px-4 pb-[max(14px,env(safe-area-inset-bottom))] pointer-events-none group-hover/hero:pointer-events-auto group-data-[controls=visible]/hero:pointer-events-auto">
                 <div className="flex items-center gap-2 text-white">
                   <button
                     type="button"
@@ -766,7 +766,7 @@ export default function PlayerView() {
                     activeChapterItemRef={activeChapterItemRef}
                   />
 
-                  <div className="flex items-center gap-1.5 ml-auto text-muted-foreground" title="Volume">
+                  <div className="flex items-center gap-1.5 ml-auto text-muted-foreground max-md:hidden" title="Volume">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-white opacity-90 block">
                       <path d="M11 5 6 9H2v6h4l5 4z" />
                       <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
@@ -871,7 +871,7 @@ export default function PlayerView() {
             {activeCaption && !showSplit && (
               <div
                 aria-live="polite"
-                className="absolute left-1/2 bottom-16 -translate-x-1/2 max-w-[min(85%,900px)] py-1.5 px-3.5 bg-black/80 rounded text-white text-[clamp(16px,2.2vw,22px)] leading-[1.35] font-medium text-center pointer-events-none z-[4] text-balance group-hover/hero:bottom-24 group-data-[controls=visible]/hero:bottom-24 group-focus-within/hero:bottom-24"
+                className="absolute left-1/2 bottom-[max(56px,calc(56px+env(safe-area-inset-bottom)))] -translate-x-1/2 max-w-[min(85%,900px)] max-sm:max-w-[calc(100%-24px)] py-1.5 px-3.5 bg-black/80 rounded text-white text-[clamp(16px,2.2vw,22px)] max-sm:text-[15px] leading-[1.35] font-medium text-center pointer-events-none z-[4] text-balance group-hover/hero:bottom-[max(96px,calc(96px+env(safe-area-inset-bottom)))] group-data-[controls=visible]/hero:bottom-[max(96px,calc(96px+env(safe-area-inset-bottom)))] group-focus-within/hero:bottom-[max(96px,calc(96px+env(safe-area-inset-bottom)))]"
               >
                 <span>{activeCaption.text}</span>
               </div>

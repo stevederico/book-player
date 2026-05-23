@@ -6,6 +6,14 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.63.0
+
+  Timeline 44px hit area
+  Captions safe-area iOS
+  Overlay safe-area iOS
+  Hide volume mobile
+  Coarse-pointer thumb
+
 0.62.0
 
   Chapters bottom Sheet mobile
