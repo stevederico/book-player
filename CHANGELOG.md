@@ -6,6 +6,12 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.64.0
+
+  Fix play button click
+  Fix timeline progress
+  Revert 44px hit area
+
 0.63.0
 
   Timeline 44px hit area
