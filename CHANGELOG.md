@@ -6,6 +6,12 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.54.0
+
+  Convert PlayerInfoPanel
+  Panel tabs Tailwind
+  Drop chapter rule CSS
+
 0.53.0
 
   Convert chapters menu
