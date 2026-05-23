@@ -31,12 +31,10 @@ function Toggle({ on }) {
 
 /**
  * YouTube-style settings panel for the audio player.
- * Supports sub-pages for View mode and Playback speed; direct toggles for transcript and captions.
+ * Supports a sub-page for Playback speed; direct toggles for transcript and captions.
  * Now includes dark/light mode switch using the app's ThemeProvider.
  */
 export default function PlayerSettings({
-  mode,
-  setMode,
   setMenuOpen,
   splitTranscript,
   toggleSplitTranscript,
@@ -55,23 +53,6 @@ export default function PlayerSettings({
     <div className={isMobile ? PANEL_MOBILE_CLS : PANEL_DESKTOP_CLS} role="menu">
       {settingsPage === 'main' && (
         <>
-          <button className={ROW_CLS} role="menuitem" onClick={() => setSettingsPage('mode')}>
-            <span className="inline-flex items-center justify-center text-foreground">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="3" y="5" width="18" height="14" rx="2" />
-                <circle cx="9" cy="11" r="2" />
-                <path d="m21 17-4-4-6 6" />
-              </svg>
-            </span>
-            <span className="font-medium tracking-[0.01em]">View</span>
-            <span className="text-foreground/70 text-[0.9rem]">
-              {mode[0].toUpperCase() + mode.slice(1)}
-            </span>
-            <svg className="-ml-1 text-muted-foreground" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="m9 18 6-6-6-6" />
-            </svg>
-          </button>
-
           {transcriptParas && !isMobile && (
             <button
               className={ROW_CLS}
@@ -148,36 +129,6 @@ export default function PlayerSettings({
               <path d="m9 18 6-6-6-6" />
             </svg>
           </button>
-        </>
-      )}
-
-      {settingsPage === 'mode' && (
-        <>
-          <button className={SUB_HEADER_CLS} onClick={() => setSettingsPage('main')}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="m15 18-6-6 6-6" />
-            </svg>
-            <span>View</span>
-          </button>
-          {['generated', 'real'].map(m => (
-            <button
-              key={m}
-              role="menuitemradio"
-              aria-checked={mode === m}
-              data-selected={mode === m || undefined}
-              className={OPTION_CLS}
-              onClick={() => { setMode(m); setMenuOpen(false); }}
-            >
-              <span className="w-[18px] inline-flex items-center justify-center text-foreground" aria-hidden="true">
-                {mode === m && (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                )}
-              </span>
-              {m[0].toUpperCase() + m.slice(1)}
-            </button>
-          ))}
         </>
       )}
 

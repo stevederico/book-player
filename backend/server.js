@@ -1628,7 +1628,8 @@ async function runChapterImagesJob(slug) {
 }
 
 // Search Unsplash per chapter and store the top hit as chapter.realImage.
-// Background job. After completion, flips defaultViewMode to 'real' if any image landed.
+// Background job. No longer part of the default pipeline (generated images only);
+// kept for manual invocation against existing guides.
 app.post("/api/guides/:slug/chapter-real-images", async (c) => {
   try {
     const slug = c.req.param('slug');
@@ -1667,8 +1668,7 @@ app.post("/api/guides/:slug/chapter-real-images", async (c) => {
 /**
  * Background job: Unsplash-search one image per chapter (where missing),
  * download the top result, save under /images/<slug>/real/<idx>.<ext>,
- * and update chapter.realImage. After completion, flips defaultViewMode to
- * 'real' if any image was added.
+ * and update chapter.realImage.
  *
  * @param {string} slug
  * @returns {Promise<void>}
@@ -1728,7 +1728,6 @@ async function runChapterRealImagesJob(slug) {
 
     const fresh = await db.getGuide(slug);
     const update = { ...fresh, chapters };
-    if (added > 0) update.defaultViewMode = 'real';
     await db.upsertGuide(update);
     await db.updateGuideJob(slug, 'chapter-real-images', {
       status: 'done',
@@ -1757,7 +1756,8 @@ async function runChapterRealImagesJob(slug) {
  * Stages:
  *   1. parallel: analyze (author + summary + chapter outlines), thumbnail, tts
  *   2. attach chapter times (no API call) once words are available
- *   3. parallel: chapter-images, chapter-real-images
+ *   3. chapter-images (Grok Imagine). Unsplash real-images are no longer
+ *      part of the default pipeline — generated is the only forward mode.
  *
  * Errors in one branch do not abort other branches.
  *
@@ -1786,9 +1786,8 @@ async function runFullPipeline(slug) {
 
   const stageC = await Promise.allSettled([
     runChapterImagesJobStaged(slug),
-    runChapterRealImagesJobStaged(slug),
   ]);
-  logStageOutcomes('stageC', slug, ['chapter-images', 'chapter-real-images'], stageC);
+  logStageOutcomes('stageC', slug, ['chapter-images'], stageC);
 
   await db.updateGuideJob(slug, 'pipeline', {
     status: 'done',
@@ -1977,8 +1976,7 @@ app.post("/api/guides", async (c) => {
       thumbnail: typeof body.thumbnail === 'string' ? body.thumbnail.trim() : null,
       transcript: typeof body.transcript === 'string' ? body.transcript : null,
       sourceUrl: typeof body.sourceUrl === 'string' ? body.sourceUrl.trim() : null,
-      // Default to 'generated' on create — real images don't exist until Section E lands.
-      // Once a chapter gets a realImage, an enrichment job should flip this to 'real'.
+      // Generated is the only forward mode. Body override still honored for migration / legacy.
       defaultViewMode: body.defaultViewMode === 'real' ? 'real' : 'generated',
       chapters: Array.isArray(body.chapters) ? body.chapters : [],
       timing: body.timing && typeof body.timing === 'object' ? body.timing : null,

@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import React, { forwardRef, memo, useCallback } from 'react';
 import { fmt } from '../lib/playerUtils';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import {
@@ -11,12 +11,38 @@ import {
 const CHAPTER_ROW_CLS =
   "group/chapter flex items-baseline gap-3.5 w-full bg-transparent border-none text-inherit text-left py-2.5 px-[18px] text-[0.92rem] font-medium cursor-pointer transition-colors hover:bg-foreground/5 data-[active]:bg-foreground/5";
 
+const CHAPTER_ROW_CLS_MOBILE = `${CHAPTER_ROW_CLS} min-h-[44px]`;
+
 const CHAPTER_TIME_CLS =
   "text-muted-foreground text-[0.8rem] tabular-nums shrink-0 min-w-[48px] group-data-[active]/chapter:text-[var(--accent-hot)]";
 
 const CHAPTER_TITLE_CLS = "flex-1 min-w-0 whitespace-normal leading-[1.35]";
 
-const PlayerChaptersMenu = forwardRef(function PlayerChaptersMenu({
+const ChapterRow = memo(function ChapterRow({
+  chapter,
+  index,
+  isActive,
+  isMobile,
+  activeRef,
+  onSelect,
+}) {
+  const handleClick = () => onSelect(chapter, index);
+  return (
+    <button
+      role="menuitemradio"
+      aria-checked={isActive}
+      ref={isActive ? activeRef : null}
+      data-active={isActive || undefined}
+      onClick={handleClick}
+      className={isMobile ? CHAPTER_ROW_CLS_MOBILE : CHAPTER_ROW_CLS}
+    >
+      <span className={CHAPTER_TIME_CLS}>{fmt(chapter.time)}</span>
+      <span className={CHAPTER_TITLE_CLS}>{chapter.title}</span>
+    </button>
+  );
+});
+
+const PlayerChaptersMenu = memo(forwardRef(function PlayerChaptersMenu({
   chapters,
   activeIdx,
   chaptersMenuOpen,
@@ -25,31 +51,27 @@ const PlayerChaptersMenu = forwardRef(function PlayerChaptersMenu({
   activeChapterItemRef,
 }, ref) {
   const isMobile = useIsMobile();
+
+  // Stable per-row click handler so memoized rows don't re-render
+  // when only their own active state flips.
+  const handleSelect = useCallback((chapter, index) => {
+    jumpToChapter(chapter, index);
+    setChaptersMenuOpen(false);
+  }, [jumpToChapter, setChaptersMenuOpen]);
+
   if (!chapters?.length) return null;
 
-  const renderRow = (c, i) => {
-    const isActive = i === activeIdx;
-    const rowCls = isMobile
-      ? `${CHAPTER_ROW_CLS} min-h-[44px]`
-      : CHAPTER_ROW_CLS;
-    return (
-      <button
-        key={i}
-        role="menuitemradio"
-        aria-checked={isActive}
-        ref={isActive ? activeChapterItemRef : null}
-        data-active={isActive || undefined}
-        onClick={() => {
-          jumpToChapter(c, i);
-          setChaptersMenuOpen(false);
-        }}
-        className={rowCls}
-      >
-        <span className={CHAPTER_TIME_CLS}>{fmt(c.time)}</span>
-        <span className={CHAPTER_TITLE_CLS}>{c.title}</span>
-      </button>
-    );
-  };
+  const rows = chapters.map((c, i) => (
+    <ChapterRow
+      key={i}
+      chapter={c}
+      index={i}
+      isActive={i === activeIdx}
+      isMobile={isMobile}
+      activeRef={activeChapterItemRef}
+      onSelect={handleSelect}
+    />
+  ));
 
   const trigger = (
     <button
@@ -82,7 +104,7 @@ const PlayerChaptersMenu = forwardRef(function PlayerChaptersMenu({
               </SheetTitle>
             </SheetHeader>
             <div className="overflow-y-auto py-1.5 scrollbar-thin">
-              {chapters.map(renderRow)}
+              {rows}
             </div>
           </SheetContent>
         </Sheet>
@@ -102,12 +124,12 @@ const PlayerChaptersMenu = forwardRef(function PlayerChaptersMenu({
             Chapters
           </div>
           <div className="overflow-y-auto py-1.5 scrollbar-thin">
-            {chapters.map(renderRow)}
+            {rows}
           </div>
         </div>
       )}
     </div>
   );
-});
+}));
 
 export default PlayerChaptersMenu;

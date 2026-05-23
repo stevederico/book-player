@@ -6,6 +6,16 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.66.0
+
+  Transcript content-visibility
+  Library content-visibility
+  Passive scroll listeners
+  Memoize chapters menu
+  Hoist regexes
+  Drop view-mode toggle
+  Clean todo list
+
 0.65.0
 
   Fix double-toggle play

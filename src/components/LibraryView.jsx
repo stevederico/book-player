@@ -20,13 +20,16 @@ function fmtDuration(sec) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+const THUMB_PREFIX_RX = /^\.\.\//;
+const WHITESPACE_RX = /\s+/;
+
 function resolveThumb(p) {
   if (!p) return '';
-  return p.replace(/^\.\.\//, '/');
+  return p.replace(THUMB_PREFIX_RX, '/');
 }
 
 function initials(name) {
-  return (name || '?').split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
+  return (name || '?').split(WHITESPACE_RX).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
 }
 
 export default function LibraryView() {
@@ -375,7 +378,7 @@ export default function LibraryView() {
               rel="noopener noreferrer"
               {...cardProps}
               data-processing={processing || undefined}
-              className="group/card bg-transparent border-none p-2.5 -m-2.5 rounded-2xl text-left cursor-pointer text-inherit flex flex-col no-underline transition-colors duration-150 hover:bg-muted data-[processing]:opacity-85"
+              className="group/card bg-transparent border-none p-2.5 -m-2.5 rounded-2xl text-left cursor-pointer text-inherit flex flex-col no-underline transition-colors duration-150 hover:bg-muted data-[processing]:opacity-85 [content-visibility:auto] [contain-intrinsic-size:0_320px]"
             >
               <div className="relative w-full aspect-video bg-gradient-to-br from-muted to-card rounded-xl overflow-hidden transition-[transform,box-shadow] duration-200 group-hover/card:-translate-y-0.5 group-hover/card:shadow-[0_12px_30px_rgba(0,0,0,0.4)] group-data-[processing]/card:pointer-events-none mb-3">
                 {g.thumbnail && (

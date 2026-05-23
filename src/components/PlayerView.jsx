@@ -27,7 +27,6 @@ export default function PlayerView() {
   const [searchParams] = useSearchParams();
   const debugMode = searchParams.get('debug') === '1';
   const [guide, setGuide] = useState(null);
-  const [mode, setMode] = useState('real');
   const [activeIdx, setActiveIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -269,7 +268,6 @@ export default function PlayerView() {
       .then(g => {
         if (cancelled) return;
         setGuide(g);
-        setMode(g.defaultViewMode === 'generated' ? 'generated' : 'real');
         setDuration(g.duration || 0);
         document.title = (g.title || 'Player') + ' — Visual Player';
       })
@@ -293,23 +291,26 @@ export default function PlayerView() {
     activeCaption,
   } = useTranscript(guide, duration, current, captionsOn);
 
+  // Stable identity so memoized children (e.g. PlayerChaptersMenu) don't re-render
+  // on every parent tick.
+  const chapters = useMemo(() => guide?.chapters || [], [guide]);
+
   useEffect(() => {
     if (!playing) return;
-    const chs = guide?.chapters || [];
     let raf;
     const tick = () => {
       const a = audioRef.current;
       if (a) {
         const t = a.currentTime || 0;
         setCurrent(t);
-        const i = findChapterIndex(chs, t);
+        const i = findChapterIndex(chapters, t);
         setActiveIdx(prev => (prev === i ? prev : i));
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, guide]);
+  }, [playing, chapters]);
 
   useEffect(() => {
     function onKey(e) {
@@ -599,15 +600,23 @@ export default function PlayerView() {
     };
 
     document.addEventListener('pointermove', onMove, { passive: false });
-    document.addEventListener('pointerup', onUp);
-    document.addEventListener('pointercancel', onUp);
+    document.addEventListener('pointerup', onUp, { passive: true });
+    document.addEventListener('pointercancel', onUp, { passive: true });
   }
 
   if (!guide) return null;
-  const chapters = guide.chapters || [];
   const ch = chapters[activeIdx] || chapters[0] || {};
-  const wantsReal = (mode === 'real') && ch.realImage;
-  const heroSrc = resolveAsset(wantsReal ? ch.realImage : (ch.image && ch.image.generated) || '');
+  // Chapters can have a generated image, a real image, or both. When both are
+  // present, rotate between them every IMAGE_SWAP_SECONDS so the visual changes
+  // through the chapter; otherwise just show whichever one exists.
+  const IMAGE_SWAP_SECONDS = 10;
+  const chapterImages = [ch.image && ch.image.generated, ch.realImage].filter(Boolean);
+  const chapterStart = Number.isFinite(ch.time) ? ch.time : 0;
+  const secondsInChapter = Math.max(0, current - chapterStart);
+  const heroIdx = chapterImages.length > 0
+    ? Math.floor(secondsInChapter / IMAGE_SWAP_SECONDS) % chapterImages.length
+    : 0;
+  const heroSrc = resolveAsset(chapterImages[heroIdx] || '');
   // Force split off on mobile — the side transcript pane is desktop-only;
   // mobile gets the full-width transcript tab in PlayerInfoPanel instead.
   const showSplit = splitTranscript && !!transcriptParas && !isMobile;
@@ -808,8 +817,6 @@ export default function PlayerView() {
                           </SheetHeader>
                           <div className="overflow-y-auto scrollbar-thin">
                             <PlayerSettings
-                              mode={mode}
-                              setMode={setMode}
                               setMenuOpen={setMenuOpen}
                               splitTranscript={splitTranscript}
                               isMobile={isMobile}
@@ -829,8 +836,6 @@ export default function PlayerView() {
                       </Sheet>
                     ) : menuOpen ? (
                       <PlayerSettings
-                        mode={mode}
-                        setMode={setMode}
                         setMenuOpen={setMenuOpen}
                         splitTranscript={splitTranscript}
                         isMobile={isMobile}

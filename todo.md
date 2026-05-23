@@ -1,14 +1,6 @@
 # Todo
 
 - export as video
-- images
-- chapters
-- audio wav
-- captions
-- thumbnail
-- summary
-- authorname
-- date
 
 
 ## Import EPUB
@@ -39,81 +31,8 @@
 
 ## Mobile formatting
 
-- Audit `LibraryView` + `PlayerView` at 375px / 414px viewports — current split-pane and overlays assume desktop widths
 - Player hero + caption overlay: stack vertically on mobile, ensure hero image scales to viewport width without cropping the caption
-- Transcript pane: full-width below player on mobile (no side-by-side split), preserve word highlight + click-to-seek
-- Chapters menu + settings: open as bottom sheet (`<Sheet side="bottom">`) instead of side panel on `<md`
-- Timeline scrubber: enlarge touch target to 44px min, verify drag works under thumb without accidental seeks
-- Library cards: 1-column on mobile, 2 on `sm`, 3 on `md+`; thumbnail aspect ratio stays consistent
-- Create modal: full-screen on mobile (`<Dialog>` already supports — verify), URL input + paste flow usable one-handed
-- Header: collapse desktop nav into hamburger or simplified bar at `<sm`
-- Captions overlay: position above safe area on iOS (account for home indicator + notch)
-- Test on iOS Safari + Android Chrome — audio autoplay restrictions, range request streaming, background playback
-
-## Complete-guide pipeline (replace stub endpoints)
-
-Each row maps to a stub in `backend/server.js` (NOT_IMPLEMENTED_STEPS) or a frontend field that's never set today. Ordered by dependency: top-down is also a sensible build order.
-
-### A. Cheap defaults at create time (no external calls) — DONE
-- ~~Set `visibility: 'public'` on create~~
-- ~~Set `defaultViewMode: 'generated'` on create~~ — auto-flip to 'real' once realImages exist is deferred to Section E
-- `kind` removed from the project (was Essay/Lecture taxonomy); SQLite column stays as dead data — drop with `ALTER TABLE Guides DROP COLUMN kind` if a clean schema is wanted
-
-### B. Source-page enrichment (extend `/api/fetch-url`)
-- Extract `date` from `<meta property="article:published_time">`, `<meta name="date">`, `<meta name="article:published">`, `<time datetime="…">`, falling back to first `Month YYYY` in body — return as `data.date` so create flow can store it
-- Extract `og:image` / `twitter:image` from page meta → return as `data.thumbnail` so the cover is set even before chapter images exist
-- Move the `/api/guides/:slug/date` stub: implement by re-scraping the stored source URL (need to also store the URL on the guide row) and re-running the extractor
-
-### C. LLM-driven text (xAI Grok API)
-- Implement `POST /api/guides/:slug/summary`
-  - 2–3 paragraph summary of `guide.transcript`
-  - persist to `guide.summary` (already rendered in PlayerView's Summary tab)
-  - add `XAI_API_KEY` to `.env`; use `grok-4-fast` (or current cheap Grok model) via `https://api.x.ai/v1/chat/completions` (OpenAI-compatible)
-- Auto-chapters quality pass — `/api/guides/:slug/auto-chapters` already exists; verify it populates `chapter.quote` and `chapter.caption` for every chapter (sample The Brand Age fields). If captions are inconsistent, add a `/chapter-captions` enrichment endpoint.
-
-### D. TTS + word timing (Kokoro)
-- Wire Kokoro pipeline used for The Brand Age: `backend/scripts/migrate-guides.js` references existing timing files — pin the Kokoro version + tokenizer in a README before changing anything
-- Implement `POST /api/guides/:slug/tts`:
-  - chunk transcript at sentence boundaries
-  - run Kokoro to produce per-chunk MP3 + word timestamps
-  - concatenate MP3s → write to `backend/public/audio/<slug>.mp3`
-  - merge per-chunk word timings, offset each by the chunk start → `guide.timing.words`
-  - read MP3 duration → `guide.duration`
-  - compute `timingOffset` (currently 0.15 for Brand Age) — calibration pass against the first audible word
-- Surface progress: TTS is minutes-scale, so the stepper needs Server-Sent Events or polling. Pick polling (`GET /api/guides/:slug/jobs/tts`) and run TTS in a background promise; persist job state under `tts_jobs` row.
-
-### E. Image generation (xAI Grok Imagine)
-- All image gen goes through xAI Grok Imagine — `POST https://api.x.ai/v1/images/generations`, model `grok-imagine-image-quality`, body `{ model, prompt }`, response `data[].url`. Auth via `Authorization: Bearer $XAI_API_KEY`. Flat per-image pricing.
-- Helper: `backend/lib/grokImagine.js` — single `generateImage({ prompt })` that downloads the URL, transcodes to webp, returns the local path. Reused by every image endpoint.
-- `POST /api/guides/:slug/thumbnail`:
-  - if `guide.thumbnail` already set (from og:image), no-op
-  - else generate a single hero image from `guide.title` + first paragraph of transcript → save to `/images/<slug>/cover.webp`
-- `POST /api/guides/:slug/chapter-images`:
-  - for each chapter without `image.generated`, generate one image per `chapter.quote` (or `chapter.title`)
-  - save to `/images/<slug>/generated/<idx>.webp`, update each chapter
-  - parallelize with a concurrency cap (e.g. 3 at a time) to respect xAI rate limits
-- `POST /api/guides/:slug/chapter-real-images`:
-  - search Unsplash or Pexels per chapter (`q = chapter.title + author`)
-  - download + cache the top result → `/images/<slug>/real/<idx>.webp`
-  - update each chapter's `realImage`
-- Add `XAI_API_KEY` (reused from Section C) + `UNSPLASH_ACCESS_KEY` to `.env`; rate limit + exponential backoff on 429/5xx per CLAUDE.md
-- Cost guard: per-guide image cap (see "More visuals per chapter" — 60 default) applies here too
-
-### F. Frontend orchestration polish
-- Add "Run all remaining" button on `GuideProgress` that walks rows in dependency order: text → tts → chapters → images
-- For long-running endpoints (tts, chapter-images): poll the guide every 2–3s while the row is "running" so newly-produced fields flip the row green automatically
-- Show stepper on `PlayerView` too (behind a `?debug=1` query param) so any guide can be inspected — same component, no extra work
-- When all 17 rows are green, surface a "Mark public" / "Publish" affordance instead of "Open player"
-
-### G. Schema + adapter touch-ups
-- Add `source_url` column to `Guides` so the `/date` re-scrape and any future re-fetch can find the original URL
-- Add `tts_job_id` column for the polling endpoint (or a sibling `Jobs` table for any background work)
-- Update `backend/adapters/sqlite.js`, `postgres.js`, `mongodb.js` so the new columns round-trip
-
-### H. Hardening
-- Rate-limit each enrichment endpoint (LLM + image gen are paid)
-- Add `c.req.timeout` style guards so a hung Replicate/Kokoro call doesn't pile up
-- Tests in `backend/server.test.js` for each new endpoint — assert 501 disappears, success-path stores the right field
+- Test on iOS Safari — audio autoplay restrictions, range request streaming, background playback
 
 ## Future — Auth + Per-user State
 
@@ -136,7 +55,7 @@ Everything below only becomes relevant once auth is enabled (`noLogin: false`, r
 
 ## Create flow gaps (when auth is on)
 
-- No edit / delete UI — `PUT /api/guides/:slug` + `DELETE` + admin/owner edit modal
+- No edit UI — `PUT /api/guides/:slug` + admin/owner edit modal
 - (Other create improvements listed above should be done in dev mode first)
 
 ## Backend hardening
@@ -151,13 +70,97 @@ Everything below only becomes relevant once auth is enabled (`noLogin: false`, r
 
 ## Misc
 
-- Pin exact Kokoro version + tokenizer used for existing timing files
-- Surface `defaultViewMode` toggle in create modal
-- Ensure prod SPA fallback works after removing backend/public/index.html
-
+# DONE
 
 
 **Note**: Local progress saving (`pg.progress.${slug}`) has already been implemented as the offline fallback. Many "Phase 4" items can be partially delivered today using localStorage only.
 
 
 slow scroller like a script next to a movie https://www.youtube.com/watch?v=kunUvYIJtHM
+
+## Complete-guide pipeline (replace stub endpoints) — DONE
+
+Landed in 0.47.0 (orchestration + Grok + Kokoro wiring) and 0.55.0 (TTS coarticulation fix). Backend owns the whole pipeline; FE just polls `guide.jobs` from `GET /api/guides/:slug`.
+
+### A. Cheap defaults at create time — DONE
+  Set visibility public on create
+  Set defaultViewMode generated on create
+  Auto-flip defaultViewMode to real once realImages exist (Section E)
+
+### B. Source-page enrichment (extend `/api/fetch-url`) — DONE
+  Extract date via meta/time tags with Month YYYY fallback (extractDate in server.js)
+  Extract og:image / twitter:image as thumbnail (extractOgImage)
+  POST /api/guides/:slug/date re-scrapes stored source_url
+
+### C. LLM-driven text (xAI Grok) — DONE
+  One combined analyzeTranscript call returns author + summary + chapterOutlines (backend/tts/analyze.js)
+  Uses grok-4.3 via https://api.x.ai/v1/chat/completions
+  Persisted to guide.summary (rendered in PlayerView Summary tab, default tab)
+  Known author domains recognized when meta tag missing (paulgraham.com → Paul Graham)
+
+### D. TTS + word timing (Kokoro) — DONE
+  POST /api/guides/:slug/tts chunks by sentence (MAX_CHUNK_CHARS=380) in backend/tts/tts-pipeline.js
+  Whole-text phonemize per chunk (per-word phonemize broke coarticulation — fixed in 0.55.0)
+  Equal-power crossfade between WAV chunks via concatWav fadeMs=25
+  Recursive bisect fallback on "invalid expand shape" (510-token cap)
+  WAV-first to backend/public/audio/<slug>.wav, served with Range support
+  Background job via jobs_json column; FE polls; 202 response on start
+  POST /api/guides/:slug/chapter-timing matches chapter quotes to word offsets locally (no second AI call)
+
+### E. Image generation (xAI Grok Imagine) — DONE
+  backend/lib/grokImagine.js with 90s timeout + exponential backoff (1s→2s→4s, 3 retries) + pLimit
+  POST /api/guides/:slug/thumbnail — skips if og:image already set
+  POST /api/guides/:slug/chapter-images — concurrency 3, prompt from quote/title
+  POST /api/guides/:slug/chapter-real-images — Unsplash search per chapter, flips defaultViewMode to real
+  Model grok-imagine-image-quality at https://api.x.ai/v1/images/generations
+
+### F. Frontend orchestration — DONE (different shape than planned)
+  Backend orchestrates whole pipeline on POST /api/guides (per user: "no back and forth")
+  Modal closes immediately on submit; library grid shows pulsing yellow Processing badge with current step
+  Failed pipelines show red Failed: <error> badge
+  GuideProgress auto-polls when any job.status === running
+  PlayerView ?debug=1 shows GuideProgress in collapsed panel
+  Publish button appears when all phases complete
+  "Run all remaining" intentionally NOT added — backend orchestrates instead
+
+### G. Schema + adapter touch-ups — DONE
+  source_url, summary, jobs_json columns on Guides (sqlite.js + postgres.js + mongodb.js)
+  db.updateGuideJob(slug, step, jobState) using BEGIN IMMEDIATE / COMMIT (Node DatabaseSync has no .transaction())
+  ALTER TABLE backfill guarded with try/catch for existing DBs
+
+### H. Hardening — PARTIAL (rate limit + tests skipped per user direction)
+  AbortController timeouts: 60s on Grok text, 90s per image, 10min on TTS
+  Cache-bust audio URL via ?v=updatedAt query
+  Rate limiting deferred — user explicitly said "no rate limiter we are in development!"
+  Endpoint tests deferred
+
+## Mobile formatting — DONE
+
+Audit `LibraryView` + `PlayerView` at 375px / 414px viewports — current split-pane and overlays assume desktop widths
+Transcript pane: full-width below player on mobile (no side-by-side split), preserve word highlight + click-to-seek
+Chapters menu + settings: open as bottom sheet (`<Sheet side="bottom">`) instead of side panel on `<md`
+Timeline scrubber: enlarge touch target to 44px min, verify drag works under thumb without accidental seeks
+Library cards: 1-column on mobile, 2 on `sm`, 3 on `md+`; thumbnail aspect ratio stays consistent
+Create modal: full-screen on mobile (`<Dialog>` already supports — verify), URL input + paste flow usable one-handed
+Header: collapse desktop nav into hamburger or simplified bar at `<sm`
+Captions overlay: position above safe area on iOS (account for home indicator + notch)
+
+## Pipeline outputs — DONE
+
+images
+chapters
+audio wav
+captions
+thumbnail
+summary
+authorname
+date
+
+## Misc — DONE
+
+Pin exact Kokoro version + tokenizer used for existing timing files (backend/tts/kokoro.js + backend/tts/vocab.js pin Kokoro-82M-v1.0-ONNX-timestamped)
+Ensure prod SPA fallback works after removing backend/public/index.html (backend/server.js:2483 reads index.html from staticDir)
+
+## Create flow — DONE
+
+Delete UI for guides (LibraryView pendingDelete confirm dialog + DELETE /api/guides/:slug at server.js:1224)
