@@ -1352,6 +1352,50 @@ h1 {
   margin: 0 -4px;
 }
 
+/* Summary panel */
+.summary-panel {
+  padding: 14px 6px 24px;
+  font-family: 'Manrope', system-ui, sans-serif;
+}
+.summary-body {
+  font-size: 1.02rem;
+  line-height: 1.7;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: -0.005em;
+  text-wrap: pretty;
+}
+.summary-empty {
+  color: var(--muted);
+  font-size: 0.95rem;
+  padding: 8px 0;
+}
+
+/* Notes panel */
+.notes-panel {
+  padding: 14px 6px 24px;
+}
+.notes-textarea {
+  width: 100%;
+  min-height: 320px;
+  resize: vertical;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-family: 'Manrope', system-ui, sans-serif;
+  font-size: 1rem;
+  line-height: 1.6;
+  outline: none;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.notes-textarea::placeholder { color: var(--muted); }
+.notes-textarea:focus {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
 .yt-meta {
   margin: 14px 0 8px;
 }

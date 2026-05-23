@@ -220,12 +220,15 @@ export default function PlayerView() {
     try { return localStorage.getItem('pg.split') === '1'; } catch { return false; }
   });
   const [chaptersMenuOpen, setChaptersMenuOpen] = useState(false);
+  const [notes, setNotes] = useState('');
   const menuRef = useRef(null);
   const chaptersMenuRef = useRef(null);
   const activeChapterItemRef = useRef(null);
   const feedbackTimerRef = useRef(null);
   const transcriptScrollRef = useRef(null);
   const activeWordRef = useRef(null);
+  const sideTranscriptScrollRef = useRef(null);
+  const sideActiveWordRef = useRef(null);
   const userScrollUntilRef = useRef(0);
 
   useEffect(() => {
@@ -270,8 +273,13 @@ export default function PlayerView() {
   }
 
   useEffect(() => {
-    if (splitTranscript && panel === 'transcript') setPanel('chapters');
-  }, [splitTranscript, panel]);
+    try { setNotes(localStorage.getItem(`pg.notes.${slug}`) || ''); } catch { setNotes(''); }
+  }, [slug]);
+
+  function updateNotes(v) {
+    setNotes(v);
+    try { localStorage.setItem(`pg.notes.${slug}`, v); } catch {}
+  }
 
   const audioRef = useRef(null);
   const heroRef = useRef(null);
@@ -434,22 +442,39 @@ export default function PlayerView() {
       scroller.removeEventListener('wheel', pauseAutoScroll);
       scroller.removeEventListener('touchmove', pauseAutoScroll);
     };
-  }, [panel, splitTranscript]);
+  }, [panel]);
 
   useEffect(() => {
-    const transcriptVisible = transcriptParas && (splitTranscript || panel === 'transcript');
-    if (!transcriptVisible || !playing) return;
+    const scroller = sideTranscriptScrollRef.current;
+    if (!scroller) return;
+    function pauseAutoScroll() { userScrollUntilRef.current = Date.now() + 5000; }
+    scroller.addEventListener('wheel', pauseAutoScroll, { passive: true });
+    scroller.addEventListener('touchmove', pauseAutoScroll, { passive: true });
+    return () => {
+      scroller.removeEventListener('wheel', pauseAutoScroll);
+      scroller.removeEventListener('touchmove', pauseAutoScroll);
+    };
+  }, [splitTranscript, transcriptParas]);
+
+  useEffect(() => {
+    if (!playing) return;
     if (Date.now() < userScrollUntilRef.current) return;
-    const el = activeWordRef.current;
-    const scroller = transcriptScrollRef.current;
-    if (!el || !scroller) return;
-    const elRect = el.getBoundingClientRect();
-    const sRect = scroller.getBoundingClientRect();
-    const relTop = elRect.top - sRect.top;
-    const h = sRect.height;
-    if (relTop > h * 0.75 || elRect.bottom < sRect.top) {
-      const target = scroller.scrollTop + relTop - h * 0.2;
-      scroller.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+    function scrollActiveIntoView(el, scroller) {
+      if (!el || !scroller) return;
+      const elRect = el.getBoundingClientRect();
+      const sRect = scroller.getBoundingClientRect();
+      const relTop = elRect.top - sRect.top;
+      const h = sRect.height;
+      if (relTop > h * 0.75 || elRect.bottom < sRect.top) {
+        const target = scroller.scrollTop + relTop - h * 0.2;
+        scroller.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+      }
+    }
+    if (panel === 'transcript') {
+      scrollActiveIntoView(activeWordRef.current, transcriptScrollRef.current);
+    }
+    if (splitTranscript && transcriptParas) {
+      scrollActiveIntoView(sideActiveWordRef.current, sideTranscriptScrollRef.current);
     }
   }, [activeWord, panel, playing, splitTranscript, transcriptParas]);
 
@@ -502,7 +527,7 @@ export default function PlayerView() {
                 </div>
                 <div
                   className="hero-pane hero-transcript-pane"
-                  ref={transcriptScrollRef}
+                  ref={sideTranscriptScrollRef}
                   onClick={e => e.stopPropagation()}
                 >
                   {transcriptParas.map((p, pi) => (
@@ -513,7 +538,7 @@ export default function PlayerView() {
                         return (
                           <span
                             key={wi}
-                            ref={isActive ? activeWordRef : null}
+                            ref={isActive ? sideActiveWordRef : null}
                             className={`tw${isActive ? ' active' : ''}${isPast ? ' past' : ''}`}
                             onClick={() => seekToWord(w.index)}
                           >
@@ -847,7 +872,7 @@ export default function PlayerView() {
             >
               Chapters
             </button>
-            {guide.transcript && !splitTranscript && (
+            {guide.transcript && (
               <button
                 role="tab"
                 aria-selected={panel === 'transcript'}
@@ -857,9 +882,25 @@ export default function PlayerView() {
                 Transcript
               </button>
             )}
+            <button
+              role="tab"
+              aria-selected={panel === 'summary'}
+              className={`panel-tab${panel === 'summary' ? ' active' : ''}`}
+              onClick={() => setPanel('summary')}
+            >
+              Summary
+            </button>
+            <button
+              role="tab"
+              aria-selected={panel === 'notes'}
+              className={`panel-tab${panel === 'notes' ? ' active' : ''}`}
+              onClick={() => setPanel('notes')}
+            >
+              Notes
+            </button>
           </div>
         </div>
-        {panel === 'chapters' ? (
+        {panel === 'chapters' && (
           <div className="chapters">
             {chapters.map((c, i) => (
               <div
@@ -872,7 +913,28 @@ export default function PlayerView() {
               </div>
             ))}
           </div>
-        ) : (
+        )}
+        {panel === 'summary' && (
+          <div className="summary-panel">
+            {guide.summary ? (
+              <p className="summary-body">{guide.summary}</p>
+            ) : (
+              <div className="summary-empty">No summary available for this guide yet.</div>
+            )}
+          </div>
+        )}
+        {panel === 'notes' && (
+          <div className="notes-panel">
+            <textarea
+              className="notes-textarea"
+              placeholder="Write your notes here…"
+              value={notes}
+              onChange={e => updateNotes(e.target.value)}
+              aria-label="Notes for this guide"
+            />
+          </div>
+        )}
+        {panel === 'transcript' && (
           <div className="transcript" ref={transcriptScrollRef}>
             {!guide ? (
               <div className="transcript-empty">Loading transcript…</div>
