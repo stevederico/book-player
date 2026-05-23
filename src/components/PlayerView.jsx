@@ -171,7 +171,30 @@ function parseTranscript(text) {
   while (start < lines.length && /^Source:/i.test(lines[start])) start++;
   while (start < lines.length && lines[start].trim() === '') start++;
   const body = lines.slice(start).join('\n');
-  const paras = body.split(/\n\s*\n+/).map(p => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const chunks = body.split(/\n\s*\n+/).map(p => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  // Many sources hard-wrap every visual line with a blank line between, losing real
+  // paragraph boundaries. Merge fragments that don't end on sentence-terminal
+  // punctuation with the next chunk; standalone numeric markers (footnotes, section
+  // numbers) stay as their own paragraph.
+  const paras = [];
+  let current = '';
+  for (const chunk of chunks) {
+    const endsTerminal = /[.!?][)"'""']?$/.test(chunk);
+    const wordCount = chunk.split(/\s+/).length;
+    // Standalone: numeric markers, or short heading-like chunks (≤5 words) that
+    // don't end with sentence-terminal punctuation — titles, dates, section labels.
+    if (/^\d+\.?$/.test(chunk) || (wordCount <= 5 && !endsTerminal)) {
+      if (current) { paras.push(current); current = ''; }
+      paras.push(chunk);
+      continue;
+    }
+    current = current ? current + ' ' + chunk : chunk;
+    if (endsTerminal) {
+      paras.push(current);
+      current = '';
+    }
+  }
+  if (current) paras.push(current);
   let wordCounter = 0;
   return paras.map(p => {
     const words = p.split(' ').map(w => ({ text: w, index: wordCounter++ }));
