@@ -1,7 +1,4 @@
 <div align="center">
-  <p>
-    <img src="public/icons/icon.png" width="60" height="60" alt="Book Player" />
-  </p>
   <h1 align="center" style="border-bottom: none; margin-bottom: 0;">Book Player</h1>
   <h3 align="center" style="margin-top: 0; font-weight: normal;">
     a visual audio player for essays and books — chapters, synced transcripts, live captions
@@ -15,7 +12,7 @@
 - **Audio + synced transcript** — every spoken word is highlighted as it's read; click any word to seek
 - **Chapters with hero images** — each section gets a title, quote, image, and caption
 - **Live captions** — YouTube-style overlay driven by per-word timestamps, sentence-aware chunking
-- **Library + player** — catalog all your guides on `/`, play one at `/app/player/:slug`
+- **Library + player** — catalog all your guides at `/app/home`, play one at `/app/:slug`
 - **Real backend** — content lives in SQLite, audio + images served by Hono with range-request streaming
 
 <br />
@@ -27,7 +24,7 @@ npm run install-all     # installs root + backend workspace deps
 npm run start           # backend on :8000, Vite on :5173
 ```
 
-Open <http://localhost:5173/>. The library shows every guide in the DB; click one to open the player.
+Open <http://localhost:5173/app/home>. The library shows every guide in the DB; click one to open the player.
 
 <br />
 
@@ -83,8 +80,8 @@ Word-timing files are produced from the audio + transcript by [`koko`](https://g
 book-player/
 ├── src/
 │   ├── components/
-│   │   ├── LibraryView.jsx     # / — catalog of guides
-│   │   └── PlayerView.jsx      # /app/player/:slug — audio + transcript player
+│   │   ├── LibraryView.jsx     # /app/home — catalog of guides
+│   │   └── PlayerView.jsx      # /app/:slug — audio + transcript player
 │   ├── assets/
 │   │   ├── styles.css
 │   │   └── pg.css              # player styles

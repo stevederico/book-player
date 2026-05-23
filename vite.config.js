@@ -234,7 +234,7 @@ export default defineConfig({
     drop: []
   },
   resolve: {
-    dedupe: ['react', 'react-dom', 'react-router-dom', 'react-router'],
+    dedupe: ['react', 'react-dom', 'react-router'],
     alias: {
       '@': path.resolve(process.cwd(), './src'),
       '@package': path.resolve(process.cwd(), 'package.json'),
@@ -250,7 +250,6 @@ export default defineConfig({
       'react-dom',
       'react-dom/client',
       '@radix-ui/react-slot',
-      'react-router-dom',
       'react-router',
       'cookie',
       'set-cookie-parser'

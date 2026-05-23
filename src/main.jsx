@@ -1,6 +1,6 @@
 import './assets/styles.css';
 import './assets/pg.css';
-import { Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router';
 import { createSkateboardApp } from '@stevederico/skateboard-ui/App';
 import constants from './constants.json';
 import LibraryView from './components/LibraryView.jsx';

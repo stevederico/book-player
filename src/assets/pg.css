@@ -724,14 +724,16 @@ h1 {
 }
 
 .hero:hover .overlay,
-.hero:focus-within .overlay { opacity: 1; }
+.hero:focus-within .overlay,
+.hero.paused .overlay { opacity: 1; }
 
 .overlay-inner {
   padding: 0 16px 14px;
   pointer-events: none;
 }
 .hero:hover .overlay-inner,
-.hero:focus-within .overlay-inner { pointer-events: auto; }
+.hero:focus-within .overlay-inner,
+.hero.paused .overlay-inner { pointer-events: auto; }
 
 .chapter-title {
   font-family: 'Bricolage Grotesque', system-ui, sans-serif;
@@ -776,8 +778,10 @@ h1 {
   pointer-events: none;
 }
 .hero:hover .timeline,
-.hero:focus-within .timeline { pointer-events: auto; }
-.hero:hover .timeline { height: 6px; }
+.hero:focus-within .timeline,
+.hero.paused .timeline { pointer-events: auto; }
+.hero:hover .timeline,
+.hero.paused .timeline { height: 6px; }
 
 .timeline-progress {
   position: absolute;

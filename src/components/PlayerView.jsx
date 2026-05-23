@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams } from 'react-router';
 
 function normalizeToken(s) {
   return s.toLowerCase().replace(/[^\w']/g, '');
