@@ -6,6 +6,11 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.61.0
+
+  PlayerView mobile split
+  Hide split toggle mobile
+
 0.60.0
 
   Library mobile grid

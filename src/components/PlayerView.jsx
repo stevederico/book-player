@@ -14,6 +14,7 @@ import PlayerSettings from './PlayerSettings.jsx';
 import PlayerChaptersMenu from './PlayerChaptersMenu.jsx';
 import PlayerInfoPanel from './PlayerInfoPanel.jsx';
 import { useTheme } from '@stevederico/skateboard-ui/ThemeProvider';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 
 export default function PlayerView() {
   const { slug = 'the-brand-age' } = useParams();
@@ -48,6 +49,7 @@ export default function PlayerView() {
 
   const { resolvedTheme, setTheme } = useTheme();
   const isDarkMode = resolvedTheme === 'dark';
+  const isMobile = useIsMobile();
   function toggleTheme() {
     setTheme(isDarkMode ? 'light' : 'dark');
   }
@@ -597,7 +599,9 @@ export default function PlayerView() {
   const ch = chapters[activeIdx] || chapters[0] || {};
   const wantsReal = (mode === 'real') && ch.realImage;
   const heroSrc = resolveAsset(wantsReal ? ch.realImage : (ch.image && ch.image.generated) || '');
-  const showSplit = splitTranscript && !!transcriptParas;
+  // Force split off on mobile — the side transcript pane is desktop-only;
+  // mobile gets the full-width transcript tab in PlayerInfoPanel instead.
+  const showSplit = splitTranscript && !!transcriptParas && !isMobile;
   const dur = duration || guide.duration || 1;
   const pct = Math.max(0, Math.min(100, (current / dur) * 100));
 
@@ -789,6 +793,7 @@ export default function PlayerView() {
                         setMode={setMode}
                         setMenuOpen={setMenuOpen}
                         splitTranscript={splitTranscript}
+                        isMobile={isMobile}
                         toggleSplitTranscript={toggleSplitTranscript}
                         captionsOn={captionsOn}
                         toggleCaptions={toggleCaptions}

@@ -46,6 +46,7 @@ export default function PlayerSettings({
   settingsPage,
   setSettingsPage,
   transcriptParas,
+  isMobile = false,
 }) {
   return (
     <div className={PANEL_CLS} role="menu">
@@ -68,7 +69,7 @@ export default function PlayerSettings({
             </svg>
           </button>
 
-          {transcriptParas && (
+          {transcriptParas && !isMobile && (
             <button
               className={ROW_CLS}
               role="menuitemcheckbox"
