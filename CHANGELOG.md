@@ -6,6 +6,11 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.74.0
+
+  Compress brand-age MP3
+  Add brand-age guide
+
 0.73.0
 
   Fix modal toggle
