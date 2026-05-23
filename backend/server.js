@@ -981,6 +981,155 @@ app.post("/api/payment", async (c) => {
 // ==== STATIC ROUTES ====
 app.get("/api/health", (c) => c.json({ status: "ok", timestamp: Date.now() }));
 
+// Simple server-side page fetch + extraction for the create flow
+// Minimal HTML entity decoder — covers the common named entities and all numeric refs
+const HTML_ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  ndash: '–', mdash: '—', hellip: '…', lsquo: '‘', rsquo: '’',
+  ldquo: '“', rdquo: '”', laquo: '«', raquo: '»', copy: '©',
+  reg: '®', trade: '™', deg: '°', middot: '·', bull: '•',
+};
+function decodeHtmlEntities(s) {
+  if (!s) return '';
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(parseInt(n, 10)))
+    .replace(/&([a-z][a-z0-9]*);/gi, (m, name) => HTML_ENTITIES[name.toLowerCase()] ?? m);
+}
+
+// Convert HTML fragment to text while preserving paragraph breaks
+function htmlFragmentToText(html) {
+  return html
+    .replace(/<\/(?:p|div|section|article|h[1-6]|li|blockquote|tr)>/gi, '\n\n')
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/[ \t\f\v]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+app.post("/api/fetch-url", async (c) => {
+  try {
+    const { url } = await c.req.json();
+
+    if (!url || typeof url !== 'string') {
+      return c.json({ error: "URL is required" }, 400);
+    }
+
+    let targetUrl;
+    try {
+      targetUrl = new URL(url);
+    } catch {
+      return c.json({ error: "Invalid URL" }, 400);
+    }
+    if (!/^https?:$/.test(targetUrl.protocol)) {
+      return c.json({ error: "Only http(s) URLs are supported" }, 400);
+    }
+
+    // 15-second timeout on the outbound fetch so we don't hang the request
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let response;
+    try {
+      response = await fetch(targetUrl.toString(), {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; BookPlayerBot/1.0)',
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') {
+        return c.json({ error: 'Upstream fetch timed out after 15s' }, 504);
+      }
+      throw err;
+    }
+    clearTimeout(timer);
+
+    if (!response.ok) {
+      return c.json({ error: `Failed to fetch page (status ${response.status})` }, 502);
+    }
+
+    const html = await response.text();
+
+    // Title — [^<] still includes newlines, so multi-line titles work
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    let title = titleMatch
+      ? decodeHtmlEntities(titleMatch[1]).replace(/\s+/g, ' ').trim().replace(/\s*[|–—].*$/, '')
+      : 'Untitled';
+
+    // Strip noise once, up front
+    const cleaned = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '');
+
+    // Try to find the main content container (rough priority order)
+    const containerRegexes = [
+      /<article[^>]*>([\s\S]*?)<\/article>/i,
+      /<main[^>]*>([\s\S]*?)<\/main>/i,
+      /<div[^>]+(?:id|class)=["'][^"']*(?:post|article|content|entry-content|post-content|article-body)[^"']*["'][^>]*>([\s\S]*?)<\/div>/i,
+    ];
+
+    let mainHtml = '';
+    for (const regex of containerRegexes) {
+      const match = cleaned.match(regex);
+      if (match && match[1].length > 500) {
+        mainHtml = match[1];
+        break;
+      }
+    }
+
+    let transcript;
+    if (mainHtml) {
+      transcript = htmlFragmentToText(mainHtml);
+    } else {
+      // First fallback: stitch <p> contents (modern blogs)
+      const paras = [...cleaned.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+        .map(m => htmlFragmentToText(m[1]))
+        .filter(Boolean);
+      transcript = paras.join('\n\n');
+
+      // Second fallback: pages with no <p> at all (e.g. paulgraham.com uses <font> + <br><br>).
+      // Drop nav-ish tags then run the body through htmlFragmentToText so <br><br> becomes \n\n.
+      if (!transcript || transcript.length < 100) {
+        const bodyMatch = cleaned.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+        const bodySource = bodyMatch ? bodyMatch[1] : cleaned;
+        const stripped = bodySource
+          .replace(/<(?:nav|header|footer|aside|form|svg)[\s\S]*?<\/(?:nav|header|footer|aside|form|svg)>/gi, '')
+          .replace(/<(?:img|map|area|input|link|meta)[^>]*\/?>/gi, '');
+        transcript = htmlFragmentToText(stripped);
+      }
+    }
+
+    transcript = decodeHtmlEntities(transcript);
+
+    const authorMatch = cleaned.match(/<meta[^>]+name=["'](?:author|twitter:creator|og:article:author)["'][^>]+content=["']([^"']+)["']/i);
+    const author = authorMatch ? decodeHtmlEntities(authorMatch[1]).trim() : '';
+
+    if (!transcript || transcript.length < 100) {
+      return c.json({ error: 'Could not extract readable text from the page' }, 422);
+    }
+
+    transcript = transcript.slice(0, 25000);
+
+    return c.json({
+      title: title.trim(),
+      author: author || null,
+      transcript,
+    });
+
+  } catch (err) {
+    logger.error('fetch-url error', { error: err.message });
+    return c.json({ error: 'Failed to fetch or parse the page' }, 500);
+  }
+});
+
 // ==== GUIDE ROUTES (public read) ====
 app.get("/api/guides", async (c) => {
   try {
@@ -1041,6 +1190,24 @@ app.post("/api/tts", async (c) => {
 // Generate chapters from the existing transcript + word timings via Grok.
 // Overwrites Guides.chapters_json. Requires the guide to have a transcript
 // and word timings (timing.words). Open for now — see todo.md re: auth.
+// Stubs for the enrichment pipeline. Each step the create flow doesn't run yet
+// has an endpoint here so the GuideProgress UI can show a "Not implemented" failure
+// with a hint instead of a generic 404. Replace each body with a real implementation
+// as the pipeline lands.
+const NOT_IMPLEMENTED_STEPS = {
+  summary: 'LLM summarization of the full transcript → guide.summary',
+  tts: 'Kokoro TTS over transcript → audio MP3 + word-level timings',
+  thumbnail: 'Image generation or page meta image → guide.thumbnail',
+  'chapter-images': 'Image gen per chapter → chapter.image.generated for every chapter',
+  'chapter-real-images': 'Search or curated lookup per chapter → chapter.realImage',
+  date: 'Detect publication date from source page or transcript header',
+};
+for (const [step, hint] of Object.entries(NOT_IMPLEMENTED_STEPS)) {
+  app.post(`/api/guides/:slug/${step}`, async (c) => {
+    return c.json({ error: 'Not implemented', step, hint }, 501);
+  });
+}
+
 app.post("/api/guides/:slug/auto-chapters", async (c) => {
   try {
     const slug = c.req.param('slug');
@@ -1096,12 +1263,13 @@ app.post("/api/guides", async (c) => {
       duration: Number.isFinite(body.duration) ? body.duration : null,
       thumbnail: typeof body.thumbnail === 'string' ? body.thumbnail.trim() : null,
       transcript: typeof body.transcript === 'string' ? body.transcript : null,
-      defaultViewMode: body.defaultViewMode === 'generated' ? 'generated' : 'real',
+      // Default to 'generated' on create — real images don't exist until Section E lands.
+      // Once a chapter gets a realImage, an enrichment job should flip this to 'real'.
+      defaultViewMode: body.defaultViewMode === 'real' ? 'real' : 'generated',
       chapters: Array.isArray(body.chapters) ? body.chapters : [],
       timing: body.timing && typeof body.timing === 'object' ? body.timing : null,
       audio: typeof body.audio === 'string' ? body.audio.trim() : null,
-      kind: (body.kind === 'essay' || body.kind === 'lecture') ? body.kind : 'essay',
-      visibility: 'public',
+      visibility: typeof body.visibility === 'string' ? body.visibility : 'public',
     });
 
     logger.info('Guide created', { slug });

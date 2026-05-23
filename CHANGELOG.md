@@ -6,6 +6,18 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.45.0
+
+  Hide overlay on leave
+  Add guide pipeline UI
+  Add URL source flow
+  Add fetch-url endpoint
+  Stub pipeline endpoints
+  Toggle theme in settings
+  Touch selection support
+  Edit title in modal
+  Refresh todo roadmap
+
 0.44.0
 
   Add timeline drag scrubbing

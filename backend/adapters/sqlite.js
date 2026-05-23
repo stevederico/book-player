@@ -127,13 +127,6 @@ export class SQLiteProvider {
     `);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_guides_visibility ON Guides(visibility)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_guides_author ON Guides(author)`);
-
-    // Add kind column for Essays / Lectures filtering (safe migration)
-    try {
-      db.exec(`ALTER TABLE Guides ADD COLUMN kind TEXT DEFAULT 'essay'`);
-    } catch (e) {
-      // Column already exists — ignore
-    }
   }
 
   /**
@@ -435,7 +428,6 @@ export class SQLiteProvider {
       timingOffset: row.timing_offset ?? 0,
       defaultViewMode: row.default_view_mode || 'real',
       visibility: row.visibility,
-      kind: row.kind || 'essay',
       chapterCount: Array.isArray(chapters) ? chapters.length : 0,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -462,7 +454,7 @@ export class SQLiteProvider {
    */
   async listGuides(db, filters = {}) {
     let sql = `SELECT slug, title, author, date, duration, thumbnail, chapters_json,
-                      visibility, created_at, updated_at, kind
+                      visibility, created_at, updated_at
                FROM Guides`;
     const params = [];
     if (filters.visibility) {
@@ -480,7 +472,6 @@ export class SQLiteProvider {
         date: r.date,
         duration: r.duration,
         thumbnail: r.thumbnail,
-        kind: r.kind || 'essay',
         chapterCount: Array.isArray(chapters) ? chapters.length : 0,
         visibility: r.visibility,
         createdAt: r.created_at,
@@ -539,7 +530,7 @@ export class SQLiteProvider {
         title = ?, author = ?, date = ?, duration = ?,
         audio_url = ?, thumbnail = ?, timing_offset = ?, default_view_mode = ?,
         transcript = ?, chapters_json = ?, timing_json = ?,
-        visibility = ?, kind = ?, updated_at = ?
+        visibility = ?, updated_at = ?
         WHERE slug = ?`;
       db.prepare(sql).run(
         guide.title,
@@ -554,7 +545,6 @@ export class SQLiteProvider {
         chaptersJson,
         timingJson,
         visibility,
-        guide.kind ?? 'essay',
         now,
         guide.slug,
       );
@@ -564,8 +554,8 @@ export class SQLiteProvider {
     const sql = `INSERT INTO Guides
       (slug, title, author, date, duration, audio_url, thumbnail,
        timing_offset, default_view_mode, transcript, chapters_json, timing_json,
-       visibility, kind, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+       visibility, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
     db.prepare(sql).run(
       guide.slug,
       guide.title,
@@ -580,7 +570,6 @@ export class SQLiteProvider {
       chaptersJson,
       timingJson,
       visibility,
-      guide.kind ?? 'essay',
       guide.createdBy ?? null,
       now,
       now,

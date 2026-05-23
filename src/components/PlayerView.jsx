@@ -12,6 +12,7 @@ import TranscriptView from './TranscriptView.jsx';
 import PlayerSettings from './PlayerSettings.jsx';
 import PlayerChaptersMenu from './PlayerChaptersMenu.jsx';
 import PlayerInfoPanel from './PlayerInfoPanel.jsx';
+import { useTheme } from '@stevederico/skateboard-ui/ThemeProvider';
 
 export default function PlayerView() {
   const { slug = 'the-brand-age' } = useParams();
@@ -32,12 +33,72 @@ export default function PlayerView() {
   const [splitTranscript, setSplitTranscript] = useState(() => {
     try { return localStorage.getItem('pg.split') === '1'; } catch { return false; }
   });
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const hideTimerRef = useRef(null);
+  const pointerInsideRef = useRef(false);
   const [chaptersMenuOpen, setChaptersMenuOpen] = useState(false);
   const [notes, setNotes] = useState('');
   const [noteSelection, setNoteSelection] = useState(null);
   const [noteCustomText, setNoteCustomText] = useState('');
   const [noteAnchors, setNoteAnchors] = useState([]);
   const [noteHighlight, setNoteHighlight] = useState(null); // { start: number, end: number }
+
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDarkMode = resolvedTheme === 'dark';
+  function toggleTheme() {
+    setTheme(isDarkMode ? 'light' : 'dark');
+  }
+
+  // Controls overlay visibility with inactivity auto-hide (YouTube-style)
+  function showControls(immediate = false) {
+    pointerInsideRef.current = true;
+    // Sync DOM update for instant show on enter/move (before React re-render)
+    if (heroRef.current) {
+      heroRef.current.classList.add('controls-visible');
+    }
+    setControlsVisible(true);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    // Auto-hide only while actively playing and no menus/popups are open
+    const hasOpenUI = menuOpen || chaptersMenuOpen || !!noteSelection;
+    if (playing && !hasOpenUI) {
+      const delay = immediate ? 800 : 2200;
+      hideTimerRef.current = setTimeout(() => {
+        setControlsVisible(false);
+        if (heroRef.current) {
+          heroRef.current.classList.remove('controls-visible');
+        }
+      }, delay);
+    }
+  }
+  function hideControls() {
+    pointerInsideRef.current = false;
+    // Drop focus inside the hero so :focus-within fallbacks don't keep controls visible
+    if (heroRef.current && document.activeElement && heroRef.current.contains(document.activeElement)) {
+      try { document.activeElement.blur(); } catch {}
+    }
+    // Sync DOM update for instant hide as soon as cursor leaves the player area
+    if (heroRef.current) {
+      heroRef.current.classList.remove('controls-visible');
+    }
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    setControlsVisible(false);
+  }
+
+  // Keep controls visible when paused or any menu/popup is open — but only while the pointer is inside the hero.
+  useEffect(() => {
+    if (!pointerInsideRef.current) return;
+    if (!playing || menuOpen || chaptersMenuOpen || noteSelection) {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      if (heroRef.current) {
+        heroRef.current.classList.add('controls-visible');
+      }
+      setControlsVisible(true);
+    }
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, [playing, menuOpen, chaptersMenuOpen, noteSelection]);
+
   const menuRef = useRef(null);
   const chaptersMenuRef = useRef(null);
   const activeChapterItemRef = useRef(null);
@@ -536,7 +597,14 @@ export default function PlayerView() {
     <>
       <div className="player-container">
         <div className="player-main">
-          <div className={`hero${playing ? '' : ' paused'}${showSplit ? ' split' : ''}`} ref={heroRef} onClick={handleHeroClick}>
+          <div
+            className={`hero${playing ? '' : ' paused'}${showSplit ? ' split' : ''}${controlsVisible ? ' controls-visible' : ''}`}
+            ref={heroRef}
+            onPointerEnter={showControls}
+            onPointerMove={showControls}
+            onPointerLeave={hideControls}
+            onClick={handleHeroClick}
+          >
             {showSplit ? (
               <div className="hero-split">
                 <div className="hero-pane">
@@ -674,6 +742,8 @@ export default function PlayerView() {
                         toggleSplitTranscript={toggleSplitTranscript}
                         captionsOn={captionsOn}
                         toggleCaptions={toggleCaptions}
+                        isDarkMode={isDarkMode}
+                        toggleTheme={toggleTheme}
                         rate={rate}
                         changeRate={changeRate}
                         settingsPage={settingsPage}
@@ -763,13 +833,16 @@ export default function PlayerView() {
       <div className="chapters-section">
         <div className="player-heading">
           <h1 className="player-heading-title">{guide.title || ''}</h1>
-          <div className="player-heading-meta">
-            <div className="author-avatar" aria-hidden="true">
-              {(guide.author || '?').trim().charAt(0).toUpperCase()}
+          <div className="card-meta-row">
+            <div className="card-avatar" aria-hidden="true">
+              {(guide.author || '?').split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase()}
             </div>
-            <span className="player-heading-byline">
-              {[guide.author, guide.date || guide.publishedAt].filter(Boolean).join(' • ')}
-            </span>
+            <div className="card-text">
+              {guide.author && <div className="card-sub">{guide.author}</div>}
+              {(guide.date || guide.publishedAt) && (
+                <div className="card-meta">{guide.date || guide.publishedAt}</div>
+              )}
+            </div>
           </div>
         </div>
 

@@ -14,8 +14,10 @@ export default function PlayerInfoPanel({
   activeWord,
   onWordClick,
   activeWordRef,
+  transcriptScrollRef,
   fmt,
   onTextSelected,
+  highlightedNoteRange,
 }) {
   return (
     <>
@@ -96,7 +98,7 @@ export default function PlayerInfoPanel({
       )}
 
       {panel === 'transcript' && (
-        <div className="transcript" ref={null}>
+        <div className="transcript" ref={transcriptScrollRef}>
           {!guide ? (
             <div className="transcript-empty">Loading transcript…</div>
           ) : !transcriptParas ? (
@@ -108,6 +110,7 @@ export default function PlayerInfoPanel({
               onWordClick={onWordClick}
               activeRef={activeWordRef}
               onTextSelected={onTextSelected}
+              highlightedNoteRange={highlightedNoteRange}
             />
           )}
         </div>
