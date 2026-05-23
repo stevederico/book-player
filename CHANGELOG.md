@@ -6,6 +6,13 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.73.0
+
+  Fix modal toggle
+  Unignore toast module
+  Mount global Toaster
+  Add new guide
+
 0.72.0
 
   ⭐ Fix highlighter drift

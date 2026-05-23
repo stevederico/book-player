@@ -5,9 +5,15 @@ import { createSkateboardApp } from '@stevederico/skateboard-ui/App';
 import constants from './constants.json';
 import LibraryView from './components/LibraryView.jsx';
 import PlayerView from './components/PlayerView.jsx';
+import { Toaster } from './toast.jsx';
 
 function MinimalLayout() {
-  return <main id="main"><Outlet /></main>;
+  return (
+    <>
+      <main id="main"><Outlet /></main>
+      <Toaster />
+    </>
+  );
 }
 
 const appRoutes = [

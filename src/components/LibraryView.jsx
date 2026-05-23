@@ -13,7 +13,7 @@ import { Spinner } from '@stevederico/skateboard-ui/shadcn/ui/spinner';
 import Plus from '@stevederico/skateboard-ui/icons/Plus';
 import X from '@stevederico/skateboard-ui/icons/X';
 import Trash2 from '@stevederico/skateboard-ui/icons/Trash2';
-import { toast } from '../lib/toast.jsx';
+import { toast } from '../toast.jsx';
 
 function fmtDuration(sec) {
   if (!sec) return '';
@@ -468,7 +468,7 @@ export default function LibraryView() {
               ) : (
               <>
               {/* Pure URL or Text flow — nothing else */}
-              <div className="flex bg-muted rounded-full p-[3px] mb-4 border border-border">
+              <div className="flex bg-secondary rounded-full p-[3px] mb-4 border border-border">
                 {[
                   { mode: 'url',  label: 'From URL' },
                   { mode: 'text', label: 'Paste Text' },
@@ -478,7 +478,7 @@ export default function LibraryView() {
                     type="button"
                     onClick={() => setSourceMode(mode)}
                     data-active={sourceMode === mode || undefined}
-                    className="flex-1 py-2 px-4 text-[13px] font-semibold rounded-full border-none bg-transparent text-muted-foreground cursor-pointer transition-colors hover:text-foreground data-[active]:bg-accent data-[active]:text-foreground data-[active]:shadow-[0_1px_2px_rgba(0,0,0,0.3)]"
+                    className="flex-1 py-2 px-4 text-[13px] font-semibold rounded-full border-none bg-transparent text-secondary-foreground/70 cursor-pointer transition-colors hover:text-foreground data-[active]:bg-background data-[active]:text-foreground data-[active]:shadow-sm"
                   >
                     {label}
                   </button>
