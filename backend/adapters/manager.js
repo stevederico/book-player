@@ -297,6 +297,23 @@ class DatabaseManager {
   }
 
   /**
+   * Atomically merge a job state into a guide's jobs_json column.
+   *
+   * @async
+   * @param {string} dbType - Database type
+   * @param {string} dbName - Database name
+   * @param {string} connectionString - Connection string or file path
+   * @param {string} slug - Guide slug
+   * @param {string} step - Step name (e.g. 'tts')
+   * @param {Object} jobState - Partial job state to merge
+   * @returns {Promise<Object>} Merged jobs object
+   */
+  async updateGuideJob(dbType, dbName, connectionString, slug, step, jobState) {
+    const { provider, database } = await this.getDatabase(dbType, dbName, connectionString);
+    return await provider.updateGuideJob(database, slug, step, jobState);
+  }
+
+  /**
    * Execute custom query operation
    *
    * Generic query executor for provider-specific operations.

@@ -107,6 +107,36 @@ function floatToWav(samples, sampleRate) {
 }
 
 /**
+ * Concatenate multiple WAV buffers into a single WAV file. Assumes all inputs
+ * share the same format (16-bit PCM mono at `sampleRate`) — which is true for
+ * every chunk produced by `synthesize()`.
+ *
+ * Strips the 44-byte RIFF/fmt/data header from each buffer, sums the raw PCM,
+ * then writes a new master header with the total length.
+ *
+ * @param {Buffer[]} wavBuffers - WAV buffers from `floatToWav` / `synthesize`
+ * @param {number} sampleRate - Sample rate (must match all inputs)
+ * @returns {Buffer} Concatenated WAV file bytes
+ */
+export function concatWav(wavBuffers, sampleRate) {
+  if (!wavBuffers.length) throw new Error('concatWav: no buffers');
+  const pcmChunks = wavBuffers.map(b => b.subarray(44));
+  const totalPcmBytes = pcmChunks.reduce((n, c) => n + c.length, 0);
+  const out = Buffer.alloc(44 + totalPcmBytes);
+  out.write('RIFF', 0); out.writeUInt32LE(36 + totalPcmBytes, 4);
+  out.write('WAVE', 8); out.write('fmt ', 12);
+  out.writeUInt32LE(16, 16); out.writeUInt16LE(1, 20); out.writeUInt16LE(1, 22);
+  out.writeUInt32LE(sampleRate, 24); out.writeUInt32LE(sampleRate * 2, 28);
+  out.writeUInt16LE(2, 32); out.writeUInt16LE(16, 34);
+  out.write('data', 36); out.writeUInt32LE(totalPcmBytes, 40);
+  let off = 44;
+  for (const c of pcmChunks) { c.copy(out, off); off += c.length; }
+  return out;
+}
+
+export const KOKORO_SAMPLE_RATE = SAMPLE_RATE;
+
+/**
  * Pick the style vector matching the current input length.
  *
  * Kokoro stores 510 style vectors per voice; the one at index `min(max(L-2, 0), 509)`

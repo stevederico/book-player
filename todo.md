@@ -1,7 +1,15 @@
 # Todo
 
-- save as video
-slow scroller like a script next to a movie https://www.youtube.com/watch?v=kunUvYIJtHM
+- export as video
+- images
+- chapters
+- audio wav
+- captions
+- thumbnail
+- summary
+- authorname
+- date
+
 
 ## Import EPUB
 
@@ -138,7 +146,7 @@ Everything below only becomes relevant once auth is enabled (`noLogin: false`, r
 
 ## Production storage
 
-- Move audio/images off local disk (R2/S3 or persistent volume)
+- Move audio/images off local disk (persistent volume)
 - Proper backup strategy for SQLite + assets
 
 ## Misc
@@ -147,14 +155,9 @@ Everything below only becomes relevant once auth is enabled (`noLogin: false`, r
 - Surface `defaultViewMode` toggle in create modal
 - Ensure prod SPA fallback works after removing backend/public/index.html
 
----
 
-**Recent wins (dev mode)**:
-- Major PlayerView refactor (utilities + useTranscript hook + 5 components extracted; file reduced from ~993 → ~522 lines)
-- Local progress + resume (`pg.progress.${slug}`)
-- Create flow rebuilt around URL fetch / paste text + kind (Essay/Lecture); chapter editor + timing upload removed
-- Drag-select notes with re-highlightable anchors on timeline (touch-friendly)
-- Filter chips on home actually work
-- Guide cards open in new tab
 
 **Note**: Local progress saving (`pg.progress.${slug}`) has already been implemented as the offline fallback. Many "Phase 4" items can be partially delivered today using localStorage only.
+
+
+slow scroller like a script next to a movie https://www.youtube.com/watch?v=kunUvYIJtHM

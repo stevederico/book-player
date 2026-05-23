@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { useParams } from 'react-router';
+import { useParams, useSearchParams } from 'react-router';
+import GuideProgress from './GuideProgress.jsx';
 import {
   fmt,
   resolveAsset,
@@ -16,6 +17,8 @@ import { useTheme } from '@stevederico/skateboard-ui/ThemeProvider';
 
 export default function PlayerView() {
   const { slug = 'the-brand-age' } = useParams();
+  const [searchParams] = useSearchParams();
+  const debugMode = searchParams.get('debug') === '1';
   const [guide, setGuide] = useState(null);
   const [mode, setMode] = useState('real');
   const [activeIdx, setActiveIdx] = useState(0);
@@ -240,6 +243,19 @@ export default function PlayerView() {
   const audioRef = useRef(null);
   const heroRef = useRef(null);
   const timelineRef = useRef(null);
+
+  const refetchGuide = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/guides/${encodeURIComponent(slug)}`);
+      if (!r.ok) return null;
+      const g = await r.json();
+      setGuide(g);
+      return g;
+    } catch (err) {
+      console.error('Failed to refetch guide:', err);
+      return null;
+    }
+  }, [slug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -595,6 +611,14 @@ export default function PlayerView() {
 
   return (
     <>
+      {debugMode && guide && (
+        <details className="player-debug" style={{ padding: '12px 16px', background: 'var(--color-card, #1a1a1a)', borderBottom: '1px solid var(--color-border, #333)' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Guide pipeline (debug)</summary>
+          <div style={{ marginTop: 12 }}>
+            <GuideProgress slug={slug} guide={guide} onRefresh={refetchGuide} />
+          </div>
+        </details>
+      )}
       <div className="player-container">
         <div className="player-main">
           <div

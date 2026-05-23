@@ -229,6 +229,89 @@ body {
   padding: 3px 7px;
   border-radius: 4px;
 }
+.card-thumb .status-badge {
+  position: absolute;
+  left: 10px; right: 10px; bottom: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  padding: 6px 10px;
+  border-radius: 6px;
+  text-align: center;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.card-thumb .status-processing {
+  background: rgba(0,0,0,0.65);
+  color: #fff;
+}
+.card-thumb .status-processing::before {
+  content: '';
+  display: inline-block;
+  width: 10px; height: 10px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: #facc15;
+  box-shadow: 0 0 0 0 rgba(250,204,21,0.7);
+  animation: status-pulse 1.4s ease-out infinite;
+  vertical-align: middle;
+}
+.card-thumb .status-failed {
+  background: rgba(150,30,30,0.92);
+  color: #fff;
+}
+.card.is-processing { opacity: 0.85; }
+.card.is-processing .card-thumb { pointer-events: none; }
+
+.card-thumb .card-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.7);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity .15s ease, transform .15s ease, background-color .15s ease;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 2;
+}
+.card:hover .card-thumb .card-delete,
+.card-thumb .card-delete:focus-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.card-thumb .card-delete:hover {
+  background: rgba(180,30,30,0.95);
+}
+.card-thumb .card-delete:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.btn-primary.btn-danger {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #fff;
+}
+.btn-primary.btn-danger:hover:not(:disabled) {
+  background: #991b1b;
+  border-color: #991b1b;
+}
+@keyframes status-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(250,204,21,0.65); }
+  70%  { box-shadow: 0 0 0 8px rgba(250,204,21, 0);   }
+  100% { box-shadow: 0 0 0 0   rgba(250,204,21, 0);   }
+}
 .card-meta-row {
   display: flex; gap: 10px; align-items: flex-start;
 }

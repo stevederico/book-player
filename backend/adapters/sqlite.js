@@ -117,6 +117,9 @@ export class SQLiteProvider {
         timing_offset REAL DEFAULT 0,
         default_view_mode TEXT DEFAULT 'real',
         transcript TEXT,
+        summary TEXT,
+        source_url TEXT,
+        jobs_json TEXT,
         chapters_json TEXT NOT NULL,
         timing_json TEXT,
         visibility TEXT DEFAULT 'public',
@@ -127,6 +130,15 @@ export class SQLiteProvider {
     `);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_guides_visibility ON Guides(visibility)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_guides_author ON Guides(author)`);
+
+    // Backfill new columns on existing DBs (ALTER throws if column exists — swallow).
+    for (const ddl of [
+      `ALTER TABLE Guides ADD COLUMN summary TEXT`,
+      `ALTER TABLE Guides ADD COLUMN source_url TEXT`,
+      `ALTER TABLE Guides ADD COLUMN jobs_json TEXT`,
+    ]) {
+      try { db.exec(ddl); } catch { /* column already exists */ }
+    }
   }
 
   /**
@@ -428,6 +440,9 @@ export class SQLiteProvider {
       timingOffset: row.timing_offset ?? 0,
       defaultViewMode: row.default_view_mode || 'real',
       visibility: row.visibility,
+      summary: row.summary || null,
+      sourceUrl: row.source_url || null,
+      jobs: this.parseJsonColumn(row.jobs_json, {}),
       chapterCount: Array.isArray(chapters) ? chapters.length : 0,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -454,7 +469,7 @@ export class SQLiteProvider {
    */
   async listGuides(db, filters = {}) {
     let sql = `SELECT slug, title, author, date, duration, thumbnail, chapters_json,
-                      visibility, created_at, updated_at
+                      jobs_json, visibility, created_at, updated_at
                FROM Guides`;
     const params = [];
     if (filters.visibility) {
@@ -474,6 +489,7 @@ export class SQLiteProvider {
         thumbnail: r.thumbnail,
         chapterCount: Array.isArray(chapters) ? chapters.length : 0,
         visibility: r.visibility,
+        jobs: this.parseJsonColumn(r.jobs_json, {}),
         createdAt: r.created_at,
         updatedAt: r.updated_at,
       };
@@ -523,13 +539,15 @@ export class SQLiteProvider {
     const existing = db.prepare(`SELECT slug FROM Guides WHERE slug = ?`).get(guide.slug);
     const chaptersJson = JSON.stringify(guide.chapters ?? []);
     const timingJson = guide.timing == null ? null : JSON.stringify(guide.timing);
+    const jobsJson = guide.jobs == null ? null : JSON.stringify(guide.jobs);
     const visibility = guide.visibility || 'public';
 
     if (existing) {
       const sql = `UPDATE Guides SET
         title = ?, author = ?, date = ?, duration = ?,
         audio_url = ?, thumbnail = ?, timing_offset = ?, default_view_mode = ?,
-        transcript = ?, chapters_json = ?, timing_json = ?,
+        transcript = ?, summary = ?, source_url = ?, jobs_json = ?,
+        chapters_json = ?, timing_json = ?,
         visibility = ?, updated_at = ?
         WHERE slug = ?`;
       db.prepare(sql).run(
@@ -542,6 +560,9 @@ export class SQLiteProvider {
         guide.timingOffset ?? 0,
         guide.defaultViewMode ?? 'real',
         guide.transcript ?? null,
+        guide.summary ?? null,
+        guide.sourceUrl ?? null,
+        jobsJson,
         chaptersJson,
         timingJson,
         visibility,
@@ -553,9 +574,10 @@ export class SQLiteProvider {
 
     const sql = `INSERT INTO Guides
       (slug, title, author, date, duration, audio_url, thumbnail,
-       timing_offset, default_view_mode, transcript, chapters_json, timing_json,
+       timing_offset, default_view_mode, transcript, summary, source_url, jobs_json,
+       chapters_json, timing_json,
        visibility, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
     db.prepare(sql).run(
       guide.slug,
       guide.title,
@@ -567,6 +589,9 @@ export class SQLiteProvider {
       guide.timingOffset ?? 0,
       guide.defaultViewMode ?? 'real',
       guide.transcript ?? null,
+      guide.summary ?? null,
+      guide.sourceUrl ?? null,
+      jobsJson,
       chaptersJson,
       timingJson,
       visibility,
@@ -575,6 +600,37 @@ export class SQLiteProvider {
       now,
     );
     return { slug: guide.slug, inserted: true };
+  }
+
+  /**
+   * Atomically merge a job state into Guides.jobs_json for one slug+step.
+   *
+   * Read-modify-write inside a transaction so concurrent calls don't clobber
+   * each other. Fields in `jobState` are shallow-merged into any existing entry
+   * for the given step name.
+   *
+   * @async
+   * @param {Database} db - SQLite database instance
+   * @param {string} slug - Guide slug
+   * @param {string} step - Step name (e.g. 'tts', 'chapter-images')
+   * @param {Object} jobState - Partial job state to merge (e.g. {status: 'running', startedAt})
+   * @returns {Promise<Object>} The full merged jobs object
+   */
+  async updateGuideJob(db, slug, step, jobState) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = db.prepare(`SELECT jobs_json FROM Guides WHERE slug = ?`).get(slug);
+      if (!row) throw new Error(`Guide not found: ${slug}`);
+      const jobs = this.parseJsonColumn(row.jobs_json, {});
+      jobs[step] = { ...(jobs[step] || {}), ...jobState };
+      db.prepare(`UPDATE Guides SET jobs_json = ?, updated_at = ? WHERE slug = ?`)
+        .run(JSON.stringify(jobs), Date.now(), slug);
+      db.exec('COMMIT');
+      return jobs;
+    } catch (err) {
+      try { db.exec('ROLLBACK'); } catch {}
+      throw err;
+    }
   }
 
   /**

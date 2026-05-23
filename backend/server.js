@@ -12,6 +12,9 @@ import crypto from "crypto";
 import { databaseManager } from "./adapters/manager.js";
 import { synthesize } from "./tts/kokoro.js";
 import { generateChapters } from "./tts/chapters.js";
+import { analyzeTranscript, attachChapterTimes } from "./tts/analyze.js";
+import { synthesizeGuide } from "./tts/tts-pipeline.js";
+import { generateImage, extFromContentType, pLimit } from "./lib/grokImagine.js";
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, mkdir, stat, readFileSync, writeFileSync, statSync } from 'node:fs';
@@ -464,6 +467,7 @@ const db = {
   listGuides: (filters) => databaseManager.listGuides(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, filters),
   getGuide: (slug) => databaseManager.getGuide(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, slug),
   upsertGuide: (guide) => databaseManager.upsertGuide(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, guide),
+  updateGuideJob: (slug, step, jobState) => databaseManager.updateGuideJob(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, slug, step, jobState),
   executeQuery: (queryObject) => databaseManager.executeQuery(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, queryObject)
 };
 
@@ -1118,10 +1122,16 @@ app.post("/api/fetch-url", async (c) => {
 
     transcript = transcript.slice(0, 25000);
 
+    const date = extractDate(cleaned, transcript);
+    const thumbnail = extractOgImage(cleaned, targetUrl);
+
     return c.json({
       title: title.trim(),
       author: author || null,
       transcript,
+      date,
+      thumbnail,
+      sourceUrl: response.url || targetUrl.toString(),
     });
 
   } catch (err) {
@@ -1129,6 +1139,57 @@ app.post("/api/fetch-url", async (c) => {
     return c.json({ error: 'Failed to fetch or parse the page' }, 500);
   }
 });
+
+/**
+ * Extract a publication date from cleaned HTML.
+ *
+ * Tries meta tags, then <time datetime="...">, then a "Month YYYY" fallback
+ * in the body text. Returns a trimmed string or null.
+ *
+ * @param {string} cleanedHtml - HTML with script/style/noscript stripped
+ * @param {string} bodyText - Plain-text transcript for fallback scan
+ * @returns {string|null}
+ */
+function extractDate(cleanedHtml, bodyText) {
+  const metaPatterns = [
+    /<meta[^>]+property=["']article:published_time["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+name=["']date["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+name=["']article:published["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+property=["']og:article:published_time["'][^>]+content=["']([^"']+)["']/i,
+  ];
+  for (const re of metaPatterns) {
+    const m = cleanedHtml.match(re);
+    if (m) return decodeHtmlEntities(m[1]).trim();
+  }
+  const timeMatch = cleanedHtml.match(/<time[^>]+datetime=["']([^"']+)["']/i);
+  if (timeMatch) return decodeHtmlEntities(timeMatch[1]).trim();
+  const MONTHS = '(?:January|February|March|April|May|June|July|August|September|October|November|December)';
+  const bodyMatch = bodyText.match(new RegExp(`${MONTHS}\\s+\\d{4}`));
+  if (bodyMatch) return bodyMatch[0];
+  return null;
+}
+
+/**
+ * Extract an og:image / twitter:image URL, resolved against the page URL.
+ *
+ * @param {string} cleanedHtml - HTML with script/style/noscript stripped
+ * @param {URL} baseUrl - Page URL for relative-href resolution
+ * @returns {string|null}
+ */
+function extractOgImage(cleanedHtml, baseUrl) {
+  const patterns = [
+    /<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+name=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i,
+  ];
+  for (const re of patterns) {
+    const m = cleanedHtml.match(re);
+    if (m) {
+      const raw = decodeHtmlEntities(m[1]).trim();
+      try { return new URL(raw, baseUrl).toString(); } catch { return raw; }
+    }
+  }
+  return null;
+}
 
 // ==== GUIDE ROUTES (public read) ====
 app.get("/api/guides", async (c) => {
@@ -1153,6 +1214,30 @@ app.get("/api/guides/:slug", async (c) => {
   } catch (e) {
     logger.error('Get guide error', { error: e.message, slug: c.req.param('slug') });
     return c.json({ error: "Failed to load guide" }, 500);
+  }
+});
+
+/**
+ * Delete a guide by slug. Removes the DB row only; on-disk audio/images stay
+ * orphaned in backend/public/{audio,images}/ and are safe to garbage-collect later.
+ */
+app.delete("/api/guides/:slug", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+
+    const guide = await db.getGuide(slug);
+    if (!guide) return c.json({ error: "Guide not found" }, 404);
+
+    const result = await db.executeQuery({
+      query: `DELETE FROM Guides WHERE slug = ?`,
+      params: [slug],
+    });
+
+    return c.json({ ok: true, slug, changes: result?.data?.affectedRows ?? 1 });
+  } catch (e) {
+    logger.error('Delete guide error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: "Failed to delete guide" }, 500);
   }
 });
 
@@ -1194,19 +1279,9 @@ app.post("/api/tts", async (c) => {
 // has an endpoint here so the GuideProgress UI can show a "Not implemented" failure
 // with a hint instead of a generic 404. Replace each body with a real implementation
 // as the pipeline lands.
-const NOT_IMPLEMENTED_STEPS = {
-  summary: 'LLM summarization of the full transcript → guide.summary',
-  tts: 'Kokoro TTS over transcript → audio MP3 + word-level timings',
-  thumbnail: 'Image generation or page meta image → guide.thumbnail',
-  'chapter-images': 'Image gen per chapter → chapter.image.generated for every chapter',
-  'chapter-real-images': 'Search or curated lookup per chapter → chapter.realImage',
-  date: 'Detect publication date from source page or transcript header',
-};
-for (const [step, hint] of Object.entries(NOT_IMPLEMENTED_STEPS)) {
-  app.post(`/api/guides/:slug/${step}`, async (c) => {
-    return c.json({ error: 'Not implemented', step, hint }, 501);
-  });
-}
+// No remaining 501 stubs — every step has a real route below.
+const MAX_CHAPTER_IMAGES_PER_GUIDE = 60;
+const CHAPTER_IMAGE_CONCURRENCY = 3;
 
 app.post("/api/guides/:slug/auto-chapters", async (c) => {
   try {
@@ -1236,6 +1311,644 @@ app.post("/api/guides/:slug/auto-chapters", async (c) => {
   }
 });
 
+// Combined Grok pass: author + summary + chapter outlines from the transcript
+// in one model call. Persists guide.author (if missing), guide.summary, and
+// guide.chapters (outlines — time gets attached later by /chapter-timing).
+app.post("/api/guides/:slug/analyze", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+    await runAnalyzeStep(slug);
+    const fresh = await db.getGuide(slug);
+    return c.json({
+      author: fresh.author,
+      summary: fresh.summary,
+      chapters: (fresh.chapters || []).map(c => ({ title: c.title, quote: c.quote, caption: c.caption })),
+    });
+  } catch (e) {
+    logger.error('Analyze endpoint error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: e.message || "Failed to analyze" }, 500);
+  }
+});
+
+// Quote-match chapter outlines against word timings (no AI call).
+app.post("/api/guides/:slug/chapter-timing", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+    await runChapterTimingStep(slug);
+    const fresh = await db.getGuide(slug);
+    return c.json({ chapters: fresh.chapters });
+  } catch (e) {
+    logger.error('Chapter-timing endpoint error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: e.message || "Failed to time chapters" }, 500);
+  }
+});
+
+// Generate a 2-3 paragraph summary from the transcript via xAI Grok.
+// Persists to guide.summary.
+app.post("/api/guides/:slug/summary", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+
+    const guide = await db.getGuide(slug);
+    if (!guide) return c.json({ error: "Guide not found" }, 404);
+    if (!guide.transcript) return c.json({ error: "Guide has no transcript" }, 422);
+
+    const t0 = Date.now();
+    // Delegate to the combined analyze call so we only ever make one Grok request.
+    await runAnalyzeStep(slug);
+    const fresh = await db.getGuide(slug);
+    logger.info('Summary generated', { slug, chars: fresh.summary?.length || 0, ms: Date.now() - t0 });
+    return c.json({ summary: fresh.summary });
+  } catch (e) {
+    logger.error('Summary error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: e.message || "Failed to generate summary" }, 500);
+  }
+});
+
+// Kick off a Kokoro TTS run for a guide. Fire-and-forget — returns 202 with
+// jobId so the FE can poll GET /api/guides/:slug and watch guide.jobs.tts.
+// On completion: writes /audio/<slug>.wav and updates audio/duration/timing.
+app.post("/api/guides/:slug/tts", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+
+    const guide = await db.getGuide(slug);
+    if (!guide) return c.json({ error: "Guide not found" }, 404);
+    if (!guide.transcript) return c.json({ error: "Guide has no transcript" }, 422);
+    if (guide.jobs?.tts?.status === 'running') {
+      return c.json({ jobId: 'tts', status: 'running', message: 'Already running' }, 202);
+    }
+
+    await db.updateGuideJob(slug, 'tts', {
+      status: 'running',
+      startedAt: Date.now(),
+      chunksDone: 0,
+      chunksTotal: 0,
+      error: null,
+    });
+
+    // Fire-and-forget; do not await.
+    runTtsJob(slug, guide).catch(err => {
+      logger.error('TTS job crashed', { slug, error: err.message });
+    });
+
+    return c.json({ jobId: 'tts', status: 'running' }, 202);
+  } catch (e) {
+    logger.error('TTS kickoff error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: e.message || "Failed to kick off TTS" }, 500);
+  }
+});
+
+/**
+ * Background TTS job: synthesize the full transcript and persist results.
+ * Updates Guides.jobs_json on progress and on terminal state (done/failed).
+ *
+ * @param {string} slug
+ * @param {Object} guide - The guide payload at job kickoff
+ * @returns {Promise<void>}
+ */
+async function runTtsJob(slug, guide) {
+  const t0 = Date.now();
+  try {
+    const audioDir = resolve(__dirname, './public/audio');
+    await mkdirP(audioDir, { recursive: true });
+    const outPath = resolve(audioDir, `${slug}.wav`);
+
+    const { audioWav, words, totalDuration } = await synthesizeGuide({
+      transcript: guide.transcript,
+      onProgress: ({ chunksDone, chunksTotal }) => {
+        // Best-effort progress write — errors here shouldn't kill the job.
+        db.updateGuideJob(slug, 'tts', { chunksDone, chunksTotal }).catch(() => {});
+      },
+    });
+
+    await writeFile(outPath, audioWav);
+
+    const fresh = await db.getGuide(slug);
+    await db.upsertGuide({
+      ...fresh,
+      audio: `/audio/${slug}.wav`,
+      duration: Math.round(totalDuration),
+      timing: { words },
+    });
+    await db.updateGuideJob(slug, 'tts', {
+      status: 'done',
+      ms: Date.now() - t0,
+      finishedAt: Date.now(),
+      error: null,
+    });
+    logger.info('TTS job done', { slug, durationSec: totalDuration, words: words.length, ms: Date.now() - t0 });
+  } catch (err) {
+    logger.error('TTS job failed', { slug, error: err.message });
+    await db.updateGuideJob(slug, 'tts', {
+      status: 'failed',
+      error: err.message || 'Unknown error',
+      ms: Date.now() - t0,
+      finishedAt: Date.now(),
+    }).catch(() => {});
+  }
+}
+
+// Re-scrape the source URL to fill in / refresh guide.date.
+app.post("/api/guides/:slug/date", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+
+    const guide = await db.getGuide(slug);
+    if (!guide) return c.json({ error: "Guide not found" }, 404);
+    if (!guide.sourceUrl) return c.json({ error: "Guide has no source_url" }, 422);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let res;
+    try {
+      res = await fetch(guide.sourceUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; BookPlayerBot/1.0)',
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') return c.json({ error: 'Upstream fetch timed out after 15s' }, 504);
+      throw err;
+    }
+    clearTimeout(timer);
+    if (!res.ok) return c.json({ error: `Source returned HTTP ${res.status}` }, 502);
+
+    const html = await res.text();
+    const cleaned = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '');
+    const date = extractDate(cleaned, html);
+    if (!date) return c.json({ error: 'No publication date found on source page' }, 422);
+
+    await db.upsertGuide({ ...guide, date });
+    return c.json({ date });
+  } catch (e) {
+    logger.error('Date re-scrape error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: e.message || "Failed to re-scrape date" }, 500);
+  }
+});
+
+// Generate a hero/cover image for the guide via Grok Imagine.
+// No-op if guide.thumbnail is already set (e.g. from og:image at fetch-url).
+app.post("/api/guides/:slug/thumbnail", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+
+    const guide = await db.getGuide(slug);
+    if (!guide) return c.json({ error: "Guide not found" }, 404);
+    if (guide.thumbnail) return c.json({ thumbnail: guide.thumbnail, skipped: true });
+    if (!guide.transcript) return c.json({ error: "Guide has no transcript" }, 422);
+
+    const t0 = Date.now();
+    const prompt = `${guide.title}. ${guide.transcript.slice(0, 600)}. Editorial illustration, no text.`;
+    const { buffer, contentType } = await generateImage({ prompt });
+    const ext = extFromContentType(contentType);
+
+    const dir = resolve(__dirname, `./public/images/${slug}`);
+    await mkdirP(dir, { recursive: true });
+    const outPath = resolve(dir, `cover.${ext}`);
+    await writeFile(outPath, buffer);
+    const thumbnail = `/images/${slug}/cover.${ext}`;
+
+    const fresh = await db.getGuide(slug);
+    await db.upsertGuide({ ...fresh, thumbnail });
+    logger.info('Thumbnail generated', { slug, bytes: buffer.length, ms: Date.now() - t0 });
+    return c.json({ thumbnail });
+  } catch (e) {
+    logger.error('Thumbnail error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: e.message || "Failed to generate thumbnail" }, 500);
+  }
+});
+
+// Kick off Grok Imagine generation for each chapter that lacks image.generated.
+// Background job (jobs.chapter-images). Concurrency cap = CHAPTER_IMAGE_CONCURRENCY.
+app.post("/api/guides/:slug/chapter-images", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+
+    const guide = await db.getGuide(slug);
+    if (!guide) return c.json({ error: "Guide not found" }, 404);
+    if (!guide.chapters?.length) return c.json({ error: "Guide has no chapters" }, 422);
+    if (guide.jobs?.['chapter-images']?.status === 'running') {
+      return c.json({ jobId: 'chapter-images', status: 'running' }, 202);
+    }
+
+    const needed = guide.chapters.filter(ch => !ch.image?.generated).length;
+    if (needed === 0) return c.json({ skipped: true, message: 'All chapters already have images' });
+    if (needed > MAX_CHAPTER_IMAGES_PER_GUIDE) {
+      return c.json({ error: `Too many images (${needed} > cap ${MAX_CHAPTER_IMAGES_PER_GUIDE})` }, 422);
+    }
+
+    await db.updateGuideJob(slug, 'chapter-images', {
+      status: 'running',
+      startedAt: Date.now(),
+      chunksDone: 0,
+      chunksTotal: needed,
+      error: null,
+    });
+
+    runChapterImagesJob(slug).catch(err => {
+      logger.error('chapter-images job crashed', { slug, error: err.message });
+    });
+
+    return c.json({ jobId: 'chapter-images', status: 'running' }, 202);
+  } catch (e) {
+    logger.error('chapter-images kickoff error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: e.message || "Failed to kick off chapter-images" }, 500);
+  }
+});
+
+/**
+ * Background job: generate one Grok Imagine image per chapter that lacks one.
+ * Writes to /images/<slug>/generated/<idx>.<ext> and updates each chapter's
+ * image.generated field. Concurrency capped by CHAPTER_IMAGE_CONCURRENCY.
+ *
+ * @param {string} slug
+ * @returns {Promise<void>}
+ */
+async function runChapterImagesJob(slug) {
+  const t0 = Date.now();
+  try {
+    const guide = await db.getGuide(slug);
+    if (!guide) throw new Error('Guide vanished');
+    const chapters = [...guide.chapters];
+    const dir = resolve(__dirname, `./public/images/${slug}/generated`);
+    await mkdirP(dir, { recursive: true });
+
+    const todo = chapters
+      .map((ch, idx) => ({ ch, idx }))
+      .filter(({ ch }) => !ch.image?.generated);
+
+    let done = 0;
+    const tasks = todo.map(({ ch, idx }) => async () => {
+      const prompt = `${ch.quote || ch.title}. Editorial illustration, no text.`;
+      const { buffer, contentType } = await generateImage({ prompt });
+      const ext = extFromContentType(contentType);
+      const outPath = resolve(dir, `${idx}.${ext}`);
+      await writeFile(outPath, buffer);
+      chapters[idx] = { ...ch, image: { ...(ch.image || {}), generated: `/images/${slug}/generated/${idx}.${ext}` } };
+      done += 1;
+      await db.updateGuideJob(slug, 'chapter-images', { chunksDone: done }).catch(() => {});
+    });
+
+    await pLimit(CHAPTER_IMAGE_CONCURRENCY, tasks);
+
+    const fresh = await db.getGuide(slug);
+    await db.upsertGuide({ ...fresh, chapters });
+    await db.updateGuideJob(slug, 'chapter-images', {
+      status: 'done',
+      ms: Date.now() - t0,
+      finishedAt: Date.now(),
+      error: null,
+    });
+    logger.info('chapter-images done', { slug, count: todo.length, ms: Date.now() - t0 });
+  } catch (err) {
+    logger.error('chapter-images failed', { slug, error: err.message });
+    await db.updateGuideJob(slug, 'chapter-images', {
+      status: 'failed',
+      error: err.message || 'Unknown error',
+      ms: Date.now() - t0,
+      finishedAt: Date.now(),
+    }).catch(() => {});
+  }
+}
+
+// Search Unsplash per chapter and store the top hit as chapter.realImage.
+// Background job. After completion, flips defaultViewMode to 'real' if any image landed.
+app.post("/api/guides/:slug/chapter-real-images", async (c) => {
+  try {
+    const slug = c.req.param('slug');
+    if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
+
+    const guide = await db.getGuide(slug);
+    if (!guide) return c.json({ error: "Guide not found" }, 404);
+    if (!guide.chapters?.length) return c.json({ error: "Guide has no chapters" }, 422);
+    if (!process.env.UNSPLASH_ACCESS_KEY) return c.json({ error: "UNSPLASH_ACCESS_KEY not set" }, 500);
+    if (guide.jobs?.['chapter-real-images']?.status === 'running') {
+      return c.json({ jobId: 'chapter-real-images', status: 'running' }, 202);
+    }
+
+    const needed = guide.chapters.filter(ch => !ch.realImage).length;
+    if (needed === 0) return c.json({ skipped: true, message: 'All chapters already have realImage' });
+
+    await db.updateGuideJob(slug, 'chapter-real-images', {
+      status: 'running',
+      startedAt: Date.now(),
+      chunksDone: 0,
+      chunksTotal: needed,
+      error: null,
+    });
+
+    runChapterRealImagesJob(slug).catch(err => {
+      logger.error('chapter-real-images job crashed', { slug, error: err.message });
+    });
+
+    return c.json({ jobId: 'chapter-real-images', status: 'running' }, 202);
+  } catch (e) {
+    logger.error('chapter-real-images kickoff error', { error: e.message, slug: c.req.param('slug') });
+    return c.json({ error: e.message || "Failed to kick off chapter-real-images" }, 500);
+  }
+});
+
+/**
+ * Background job: Unsplash-search one image per chapter (where missing),
+ * download the top result, save under /images/<slug>/real/<idx>.<ext>,
+ * and update chapter.realImage. After completion, flips defaultViewMode to
+ * 'real' if any image was added.
+ *
+ * @param {string} slug
+ * @returns {Promise<void>}
+ */
+async function runChapterRealImagesJob(slug) {
+  const t0 = Date.now();
+  try {
+    const guide = await db.getGuide(slug);
+    if (!guide) throw new Error('Guide vanished');
+    const chapters = [...guide.chapters];
+    const dir = resolve(__dirname, `./public/images/${slug}/real`);
+    await mkdirP(dir, { recursive: true });
+
+    const todo = chapters
+      .map((ch, idx) => ({ ch, idx }))
+      .filter(({ ch }) => !ch.realImage);
+
+    let done = 0;
+    let added = 0;
+    const accessKey = process.env.UNSPLASH_ACCESS_KEY;
+    const tasks = todo.map(({ ch, idx }) => async () => {
+      const q = `${ch.title || ''} ${guide.author || ''}`.trim();
+      if (!q) { done += 1; return; }
+      const url = `https://api.unsplash.com/search/photos?per_page=1&query=${encodeURIComponent(q)}`;
+      const searchRes = await fetch(url, {
+        headers: { 'Authorization': `Client-ID ${accessKey}` },
+      });
+      if (!searchRes.ok) {
+        done += 1;
+        await db.updateGuideJob(slug, 'chapter-real-images', { chunksDone: done }).catch(() => {});
+        return;
+      }
+      const data = await searchRes.json();
+      const photoUrl = data?.results?.[0]?.urls?.regular;
+      if (!photoUrl) {
+        done += 1;
+        await db.updateGuideJob(slug, 'chapter-real-images', { chunksDone: done }).catch(() => {});
+        return;
+      }
+      const imgRes = await fetch(photoUrl);
+      if (!imgRes.ok) {
+        done += 1;
+        await db.updateGuideJob(slug, 'chapter-real-images', { chunksDone: done }).catch(() => {});
+        return;
+      }
+      const buf = Buffer.from(await imgRes.arrayBuffer());
+      const ext = extFromContentType(imgRes.headers.get('content-type'));
+      const outPath = resolve(dir, `${idx}.${ext}`);
+      await writeFile(outPath, buf);
+      chapters[idx] = { ...ch, realImage: `/images/${slug}/real/${idx}.${ext}` };
+      added += 1;
+      done += 1;
+      await db.updateGuideJob(slug, 'chapter-real-images', { chunksDone: done }).catch(() => {});
+    });
+
+    await pLimit(CHAPTER_IMAGE_CONCURRENCY, tasks);
+
+    const fresh = await db.getGuide(slug);
+    const update = { ...fresh, chapters };
+    if (added > 0) update.defaultViewMode = 'real';
+    await db.upsertGuide(update);
+    await db.updateGuideJob(slug, 'chapter-real-images', {
+      status: 'done',
+      ms: Date.now() - t0,
+      finishedAt: Date.now(),
+      error: null,
+    });
+    logger.info('chapter-real-images done', { slug, added, ms: Date.now() - t0 });
+  } catch (err) {
+    logger.error('chapter-real-images failed', { slug, error: err.message });
+    await db.updateGuideJob(slug, 'chapter-real-images', {
+      status: 'failed',
+      error: err.message || 'Unknown error',
+      ms: Date.now() - t0,
+      finishedAt: Date.now(),
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Backend-orchestrated pipeline: turn a freshly-created guide row (title +
+ * transcript) into a fully-populated guide. ONE Grok call extracts author +
+ * summary + chapter outlines; TTS + thumbnail run in parallel; chapter times
+ * are attached locally after TTS produces word timings.
+ *
+ * Stages:
+ *   1. parallel: analyze (author + summary + chapter outlines), thumbnail, tts
+ *   2. attach chapter times (no API call) once words are available
+ *   3. parallel: chapter-images, chapter-real-images
+ *
+ * Errors in one branch do not abort other branches.
+ *
+ * @param {string} slug
+ * @returns {Promise<void>}
+ */
+async function runFullPipeline(slug) {
+  const pipeT0 = Date.now();
+  await db.updateGuideJob(slug, 'pipeline', { status: 'running', startedAt: Date.now(), error: null });
+
+  const guide = await db.getGuide(slug);
+  if (!guide) {
+    await db.updateGuideJob(slug, 'pipeline', { status: 'failed', error: 'Guide not found' });
+    return;
+  }
+
+  const stageA = await Promise.allSettled([
+    runAnalyzeStep(slug),
+    runThumbnailStep(slug),
+    runTtsJobStaged(slug),
+  ]);
+  logStageOutcomes('stageA', slug, ['analyze', 'thumbnail', 'tts'], stageA);
+
+  // Chapter timing is a local quote-match against word timings — no API call.
+  await runChapterTimingStep(slug);
+
+  const stageC = await Promise.allSettled([
+    runChapterImagesJobStaged(slug),
+    runChapterRealImagesJobStaged(slug),
+  ]);
+  logStageOutcomes('stageC', slug, ['chapter-images', 'chapter-real-images'], stageC);
+
+  await db.updateGuideJob(slug, 'pipeline', {
+    status: 'done',
+    ms: Date.now() - pipeT0,
+    finishedAt: Date.now(),
+  });
+  logger.info('Pipeline complete', { slug, ms: Date.now() - pipeT0 });
+}
+
+function logStageOutcomes(stage, slug, names, settled) {
+  settled.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      logger.warn(`Pipeline ${stage} step failed`, { slug, step: names[i], error: r.reason?.message });
+    }
+  });
+}
+
+// Stage helpers — each updates its own jobs row + the guide row. Wrap the
+// raw work in try/catch so one failure doesn't abort the pipeline.
+
+async function runAnalyzeStep(slug) {
+  const t0 = Date.now();
+  try {
+    const guide = await db.getGuide(slug);
+    if (!guide?.transcript) return;
+    // Skip only if everything analyze produces is already present.
+    if (guide.summary && guide.author && guide.chapters?.length) return;
+    await db.updateGuideJob(slug, 'analyze', { status: 'running', startedAt: Date.now(), error: null });
+    const { author, summary, chapterOutlines } = await analyzeTranscript({
+      transcript: guide.transcript,
+      durationSec: guide.duration,
+      sourceUrl: guide.sourceUrl,
+    });
+    const fresh = await db.getGuide(slug);
+    const update = { ...fresh };
+    if (summary) update.summary = summary;
+    // Fill author only if we don't already have one — never overwrite a real value with null.
+    if (!fresh.author && author) update.author = author;
+    // Store outlines as chapters with time:0 placeholder. Times get attached later.
+    if (chapterOutlines.length) {
+      update.chapters = chapterOutlines.map(o => ({ ...o, time: 0 }));
+    }
+    await db.upsertGuide(update);
+    await db.updateGuideJob(slug, 'analyze', {
+      status: 'done',
+      ms: Date.now() - t0,
+      finishedAt: Date.now(),
+      authorFound: !!author,
+      chapters: chapterOutlines.length,
+    });
+  } catch (err) {
+    logger.error('Pipeline analyze failed', { slug, error: err.message });
+    await db.updateGuideJob(slug, 'analyze', { status: 'failed', error: err.message, ms: Date.now() - t0 }).catch(() => {});
+    throw err;
+  }
+}
+
+async function runThumbnailStep(slug) {
+  const t0 = Date.now();
+  try {
+    const guide = await db.getGuide(slug);
+    if (!guide?.transcript) return;
+    if (guide.thumbnail) return; // og:image already set
+    await db.updateGuideJob(slug, 'thumbnail', { status: 'running', startedAt: Date.now(), error: null });
+    const prompt = `${guide.title}. ${guide.transcript.slice(0, 600)}. Editorial illustration, no text.`;
+    const { buffer, contentType } = await generateImage({ prompt });
+    const ext = extFromContentType(contentType);
+    const dir = resolve(__dirname, `./public/images/${slug}`);
+    await mkdirP(dir, { recursive: true });
+    await writeFile(resolve(dir, `cover.${ext}`), buffer);
+    const fresh = await db.getGuide(slug);
+    await db.upsertGuide({ ...fresh, thumbnail: `/images/${slug}/cover.${ext}` });
+    await db.updateGuideJob(slug, 'thumbnail', { status: 'done', ms: Date.now() - t0, finishedAt: Date.now() });
+  } catch (err) {
+    logger.error('Pipeline thumbnail failed', { slug, error: err.message });
+    await db.updateGuideJob(slug, 'thumbnail', { status: 'failed', error: err.message, ms: Date.now() - t0 }).catch(() => {});
+    throw err;
+  }
+}
+
+async function runTtsJobStaged(slug) {
+  const guide = await db.getGuide(slug);
+  if (!guide?.transcript) return;
+  if (guide.audio && guide.timing?.words?.length) return; // already done
+  await db.updateGuideJob(slug, 'tts', { status: 'running', startedAt: Date.now(), chunksDone: 0, chunksTotal: 0, error: null });
+  await runTtsJob(slug, guide);
+  // Re-throw if it failed so Promise.allSettled records it
+  const fresh = await db.getGuide(slug);
+  if (fresh.jobs?.tts?.status === 'failed') {
+    throw new Error(fresh.jobs.tts.error || 'tts failed');
+  }
+}
+
+async function runChapterTimingStep(slug) {
+  const t0 = Date.now();
+  try {
+    const guide = await db.getGuide(slug);
+    if (!guide?.chapters?.length) {
+      logger.warn('Skipping chapter-timing — no chapter outlines', { slug });
+      return;
+    }
+    const words = guide.timing?.words;
+    if (!Array.isArray(words) || !words.length) {
+      logger.warn('Skipping chapter-timing — no word timings', { slug });
+      return;
+    }
+    // Already timed? Skip — every chapter has time>0 except the first (time:0).
+    if (guide.chapters.length > 1 && guide.chapters.slice(1).every(ch => Number(ch.time) > 0)) {
+      return;
+    }
+    await db.updateGuideJob(slug, 'chapter-timing', { status: 'running', startedAt: Date.now(), error: null });
+    const chapters = attachChapterTimes({ chapterOutlines: guide.chapters, words });
+    if (chapters.length) {
+      const fresh = await db.getGuide(slug);
+      await db.upsertGuide({ ...fresh, chapters });
+    }
+    await db.updateGuideJob(slug, 'chapter-timing', {
+      status: 'done',
+      ms: Date.now() - t0,
+      finishedAt: Date.now(),
+      kept: chapters.length,
+      dropped: guide.chapters.length - chapters.length,
+    });
+  } catch (err) {
+    logger.error('Pipeline chapter-timing failed', { slug, error: err.message });
+    await db.updateGuideJob(slug, 'chapter-timing', { status: 'failed', error: err.message, ms: Date.now() - t0 }).catch(() => {});
+  }
+}
+
+async function runChapterImagesJobStaged(slug) {
+  const guide = await db.getGuide(slug);
+  if (!guide?.chapters?.length) return;
+  const needed = guide.chapters.filter(ch => !ch.image?.generated).length;
+  if (needed === 0) return;
+  if (needed > MAX_CHAPTER_IMAGES_PER_GUIDE) {
+    logger.warn('Skipping chapter-images — over cap', { slug, needed });
+    return;
+  }
+  await db.updateGuideJob(slug, 'chapter-images', { status: 'running', startedAt: Date.now(), chunksDone: 0, chunksTotal: needed, error: null });
+  await runChapterImagesJob(slug);
+  const fresh = await db.getGuide(slug);
+  if (fresh.jobs?.['chapter-images']?.status === 'failed') {
+    throw new Error(fresh.jobs['chapter-images'].error || 'chapter-images failed');
+  }
+}
+
+async function runChapterRealImagesJobStaged(slug) {
+  if (!process.env.UNSPLASH_ACCESS_KEY) return; // skip if no key
+  const guide = await db.getGuide(slug);
+  if (!guide?.chapters?.length) return;
+  const needed = guide.chapters.filter(ch => !ch.realImage).length;
+  if (needed === 0) return;
+  await db.updateGuideJob(slug, 'chapter-real-images', { status: 'running', startedAt: Date.now(), chunksDone: 0, chunksTotal: needed, error: null });
+  await runChapterRealImagesJob(slug);
+  const fresh = await db.getGuide(slug);
+  if (fresh.jobs?.['chapter-real-images']?.status === 'failed') {
+    throw new Error(fresh.jobs['chapter-real-images'].error || 'chapter-real-images failed');
+  }
+}
+
 // Create a new guide. Open for now — see todo.md re: auth gating.
 // Audio is uploaded in a follow-up call to POST /api/guides/:slug/audio.
 app.post("/api/guides", async (c) => {
@@ -1263,6 +1976,7 @@ app.post("/api/guides", async (c) => {
       duration: Number.isFinite(body.duration) ? body.duration : null,
       thumbnail: typeof body.thumbnail === 'string' ? body.thumbnail.trim() : null,
       transcript: typeof body.transcript === 'string' ? body.transcript : null,
+      sourceUrl: typeof body.sourceUrl === 'string' ? body.sourceUrl.trim() : null,
       // Default to 'generated' on create — real images don't exist until Section E lands.
       // Once a chapter gets a realImage, an enrichment job should flip this to 'real'.
       defaultViewMode: body.defaultViewMode === 'real' ? 'real' : 'generated',
@@ -1273,6 +1987,12 @@ app.post("/api/guides", async (c) => {
     });
 
     logger.info('Guide created', { slug });
+
+    // Backend orchestrates the rest. Fire-and-forget — FE polls GET /api/guides/:slug.
+    runFullPipeline(slug).catch(err => {
+      logger.error('Pipeline crashed', { slug, error: err.message });
+    });
+
     return c.json({ slug }, 201);
   } catch (e) {
     logger.error('Create guide error', { error: e.message });

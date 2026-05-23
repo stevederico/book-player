@@ -6,6 +6,19 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.47.0
+
+  Orchestrate full pipeline
+  One Grok call
+  Wire Kokoro TTS
+  Add Grok Imagine
+  Add jobs_json column
+  Surface processing badge
+  Close modal on submit
+  Fix chunk size
+  Extract source_url
+  Extract date and og:image
+
 0.46.0
 
   Boost switch contrast
