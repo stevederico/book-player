@@ -23,3 +23,16 @@
   20%  { opacity: 1; }
   100% { transform: translate(-50%, -50%) scale(1.4); opacity: 0; }
 }
+
+/* Thin themed scrollbar used by transcript/chapters/settings scrollable panels.
+   Falls back to a neutral semi-transparent thumb when --scroll-thumb is undefined
+   (e.g. once pg.css is removed in A10). */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb, rgba(127, 127, 127, 0.4)) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar { width: 6px; }
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb, rgba(127, 127, 127, 0.4));
+  border-radius: 3px;
+}
