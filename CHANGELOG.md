@@ -6,6 +6,14 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.51.0
+
+  Convert modal Tailwind
+  Convert source toggle
+  Convert title editor
+  Convert delete dialog
+  Drop modal CSS
+
 0.50.0
 
   Convert LibraryView shell

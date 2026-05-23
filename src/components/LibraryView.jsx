@@ -441,18 +441,29 @@ export default function LibraryView() {
       )}
 
       <div
-        className="modal-backdrop"
         hidden={!modalOpen}
         onClick={e => { if (e.target === e.currentTarget) { setModalOpen(false); resetCreateForm(); } }}
+        className="fixed inset-0 bg-black/70 backdrop-blur-[6px] z-[100] flex items-center justify-center p-6 animate-[fade-in_150ms_ease]"
       >
-        <form className="modal" autoComplete="off" onSubmit={handleSubmit}>
-          <header className="modal-head">
-            <h2>{createdGuide ? 'Guide created' : 'New guide'}</h2>
-            <button type="button" className="modal-close" onClick={() => { setModalOpen(false); resetCreateForm(); }} aria-label="Close">
+        <form
+          autoComplete="off"
+          onSubmit={handleSubmit}
+          className="w-full max-w-[560px] bg-card border border-border rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col animate-[pop-in_180ms_ease]"
+        >
+          <header className="flex items-center justify-between py-4 px-5 border-b border-border">
+            <h2 className="font-['Bricolage_Grotesque'] font-extrabold text-[1.15rem] tracking-[-0.02em] m-0">
+              {createdGuide ? 'Guide created' : 'New guide'}
+            </h2>
+            <button
+              type="button"
+              onClick={() => { setModalOpen(false); resetCreateForm(); }}
+              aria-label="Close"
+              className="bg-transparent border-none text-muted-foreground cursor-pointer p-1 rounded-md transition-colors hover:text-foreground hover:bg-muted"
+            >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
           </header>
-          <div className="modal-body">
+          <div className="px-5 py-4 flex flex-col gap-3.5 max-h-[70vh] overflow-y-auto">
             {createdGuide ? (
               <GuideProgress
                 slug={createdGuide.slug}
@@ -462,95 +473,97 @@ export default function LibraryView() {
             ) : (
             <>
             {/* Pure URL or Text flow — nothing else */}
-            <div className="source-toggle">
-              <button
-                type="button"
-                className={`source-btn ${sourceMode === 'url' ? 'active' : ''}`}
-                onClick={() => setSourceMode('url')}
-              >
-                From URL
-              </button>
-              <button
-                type="button"
-                className={`source-btn ${sourceMode === 'text' ? 'active' : ''}`}
-                onClick={() => setSourceMode('text')}
-              >
-                Paste Text
-              </button>
+            <div className="flex bg-muted rounded-full p-[3px] mb-4 border border-border">
+              {[
+                { mode: 'url',  label: 'From URL' },
+                { mode: 'text', label: 'Paste Text' },
+              ].map(({ mode, label }) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setSourceMode(mode)}
+                  data-active={sourceMode === mode || undefined}
+                  className="flex-1 py-2 px-4 text-[13px] font-semibold rounded-full border-none bg-transparent text-muted-foreground cursor-pointer transition-colors hover:text-foreground data-[active]:bg-accent data-[active]:text-foreground data-[active]:shadow-[0_1px_2px_rgba(0,0,0,0.3)]"
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             {sourceMode === 'url' ? (
-              <div className="source-url-block">
+              <div className="mb-4">
                 <input
                   ref={urlInputRef}
                   type="url"
                   value={sourceUrl}
                   onChange={e => setSourceUrl(e.target.value)}
                   placeholder="https://example.com/article"
+                  className="w-full border border-border bg-background text-foreground rounded-lg p-3 text-[15px] outline-none transition-colors focus:border-[var(--accent)]"
                 />
               </div>
             ) : (
-              <div className="source-text-block">
+              <div className="mb-4">
                 <textarea
                   ref={textInputRef}
                   value={pastedText}
                   onChange={e => setPastedText(e.target.value)}
                   rows={10}
                   placeholder="Paste the full article or essay text here..."
+                  className="w-full border border-border bg-background text-foreground rounded-lg p-3 text-[15px] outline-none transition-colors focus:border-[var(--accent)] min-h-[180px] resize-y leading-normal"
                 />
               </div>
             )}
 
             {sourceData.transcript && (
-              <div className="title-edit-block">
-                <label className="title-edit-label">Title</label>
+              <div className="mt-4 flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-[0.04em]">Title</label>
                 <input
                   type="text"
                   value={sourceData.title}
                   onChange={e => setSourceData(d => ({ ...d, title: e.target.value }))}
                   placeholder="Untitled Guide"
-                  className="title-edit-input"
+                  className="w-full border border-border bg-background text-foreground rounded-lg px-3 py-2.5 text-[15px] outline-none transition-colors focus:border-[var(--accent)]"
                 />
               </div>
             )}
             {submitError ? (
-              <div role="alert" className="field-error" style={{ color: 'tomato', fontSize: 13, marginTop: 8 }}>
+              <div role="alert" className="text-destructive text-[13px] mt-2">
                 {submitError}
               </div>
             ) : null}
             </>
             )}
           </div>
-          <footer className="modal-foot" style={{ justifyContent: 'flex-end', gap: 10 }}>
+          <footer className="flex justify-end gap-2.5 pt-3.5 pb-4 px-5 border-t border-border bg-background">
             {createdGuide ? (
               <>
                 <button
                   type="button"
-                  className="btn-ghost"
                   onClick={() => { setModalOpen(false); resetCreateForm(); }}
+                  className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-transparent text-muted-foreground transition-colors hover:text-foreground"
                 >
                   Close
                 </button>
                 <button
                   type="button"
-                  className="btn-primary"
                   onClick={() => {
                     const slug = createdGuide.slug;
                     setModalOpen(false);
                     resetCreateForm();
                     navigate(`/app/${encodeURIComponent(slug)}`);
                   }}
+                  className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-[var(--accent)] text-white shadow-[0_6px_20px_rgba(var(--accent-glow),0.35)] transition-colors hover:bg-[var(--accent-hot)] disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  <span className="btn-label">Open player</span>
+                  Open player
                 </button>
               </>
             ) : (
               <button
                 type="submit"
-                className="btn-primary"
                 disabled={submitting || (sourceMode === 'url' ? !sourceUrl.trim() : !pastedText.trim())}
+                className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-[var(--accent)] text-white shadow-[0_6px_20px_rgba(var(--accent-glow),0.35)] transition-colors hover:bg-[var(--accent-hot)] disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <span className="btn-label">{submitLabel}</span>
+                {submitLabel}
               </button>
             )}
           </footer>
@@ -558,49 +571,54 @@ export default function LibraryView() {
       </div>
 
       <div
-        className="modal-backdrop"
         hidden={!pendingDelete}
         onClick={e => { if (e.target === e.currentTarget && !deletingSlug) setPendingDelete(null); }}
+        className="fixed inset-0 bg-black/70 backdrop-blur-[6px] z-[100] flex items-center justify-center p-6 animate-[fade-in_150ms_ease]"
       >
-        <div className="modal" role="alertdialog" aria-labelledby="delete-title" aria-describedby="delete-desc">
-          <header className="modal-head">
-            <h2 id="delete-title">Delete guide?</h2>
+        <div
+          role="alertdialog"
+          aria-labelledby="delete-title"
+          aria-describedby="delete-desc"
+          className="w-full max-w-[560px] bg-card border border-border rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col animate-[pop-in_180ms_ease]"
+        >
+          <header className="flex items-center justify-between py-4 px-5 border-b border-border">
+            <h2 id="delete-title" className="font-['Bricolage_Grotesque'] font-extrabold text-[1.15rem] tracking-[-0.02em] m-0">Delete guide?</h2>
             <button
               type="button"
-              className="modal-close"
               onClick={() => setPendingDelete(null)}
               aria-label="Close"
               disabled={!!deletingSlug}
+              className="bg-transparent border-none text-muted-foreground cursor-pointer p-1 rounded-md transition-colors hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>
           </header>
-          <div className="modal-body">
-            <p id="delete-desc" style={{ margin: 0 }}>
+          <div className="px-5 py-4 flex flex-col gap-3.5">
+            <p id="delete-desc" className="m-0">
               <strong>{pendingDelete?.title}</strong> will be permanently removed. This can't be undone.
             </p>
             {deleteError ? (
-              <div role="alert" className="field-error" style={{ color: 'tomato', fontSize: 13, marginTop: 12 }}>
+              <div role="alert" className="text-destructive text-[13px] mt-3">
                 {deleteError}
               </div>
             ) : null}
           </div>
-          <footer className="modal-foot" style={{ justifyContent: 'flex-end', gap: 10 }}>
+          <footer className="flex justify-end gap-2.5 pt-3.5 pb-4 px-5 border-t border-border bg-background">
             <button
               type="button"
-              className="btn-ghost"
               onClick={() => setPendingDelete(null)}
               disabled={!!deletingSlug}
+              className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-transparent text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancel
             </button>
             <button
               type="button"
-              className="btn-primary btn-danger"
               onClick={confirmDelete}
               disabled={!!deletingSlug}
+              className="font-bold text-[0.88rem] py-2.5 px-4 rounded-full cursor-pointer border-none bg-[#b91c1c] text-white transition-colors hover:bg-[#991b1b] disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <span className="btn-label">{deletingSlug ? 'Deleting…' : 'Delete'}</span>
+              {deletingSlug ? 'Deleting…' : 'Delete'}
             </button>
           </footer>
         </div>
