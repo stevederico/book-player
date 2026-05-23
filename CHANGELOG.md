@@ -6,6 +6,11 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.46.0
+
+  Boost switch contrast
+  Promote todo priorities
+
 0.45.0
 
   Hide overlay on leave

@@ -23,9 +23,9 @@
   --dropdown-bg: rgba(20, 20, 20, 0.95);
   --dropdown-border: rgba(255,255,255,0.12);
   --timeline-bg: rgba(255,255,255,0.22);
-  --toggle-bg: rgba(255,255,255,0.22);
-  --toggle-bg-on: rgba(255,255,255,0.92);
-  --knob: #d6d6d6;
+  --toggle-bg: rgba(255,255,255,0.18);
+  --toggle-bg-on: var(--accent);
+  --knob: #e5e5e5;
   --knob-on: #ffffff;
   --marker-bg: rgba(0, 0, 0, 0.6);
   --marker-active: #fff;
