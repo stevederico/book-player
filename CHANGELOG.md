@@ -6,6 +6,12 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.58.0
+
+  Delete pg.css
+  Merge theme vars
+  Phase A done
+
 0.57.0
 
   Convert selection popup

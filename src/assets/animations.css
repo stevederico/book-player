@@ -25,8 +25,8 @@
 }
 
 /* Thin themed scrollbar used by transcript/chapters/settings scrollable panels.
-   Falls back to a neutral semi-transparent thumb when --scroll-thumb is undefined
-   (e.g. once pg.css is removed in A10). */
+   --scroll-thumb is defined in styles.css for both dark and light themes; the
+   fallback rgba keeps it readable if a future theme drops that token. */
 .scrollbar-thin {
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb, rgba(127, 127, 127, 0.4)) transparent;
