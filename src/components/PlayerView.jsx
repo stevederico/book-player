@@ -936,29 +936,35 @@ export default function PlayerView() {
       {noteSelection && (
         <div
           ref={selectionPopupRef}
-          className="selection-popup editor"
           style={{
             top: `${Math.max(8, (noteSelection.rect?.top || 120) - 110)}px`,
             left: `${Math.max(8, Math.min(noteSelection.rect?.left || 100, (typeof window !== 'undefined' ? window.innerWidth : 900) - 300))}px`,
           }}
+          className="fixed z-[300] bg-card border border-border rounded-lg shadow-[0_6px_20px_rgba(0,0,0,0.45)] py-2 px-2.5 flex flex-col items-stretch gap-1.5 max-w-[360px] text-xs leading-tight pointer-events-auto"
         >
-          <div className="selection-editor">
-            <div className="selection-popup-content">
-              <span className="selection-time">[{fmt(noteSelection.time)}]</span>
-              <span className="selection-quote-full" title={noteSelection.text}>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5 flex-1 min-w-0 pr-1">
+              <span className="font-['Geist_Mono',ui-monospace,monospace] text-[#60a5fa] font-semibold text-[11px] shrink-0 tracking-[-0.5px]">
+                [{fmt(noteSelection.time)}]
+              </span>
+              <span title={noteSelection.text} className="text-muted-foreground text-xs leading-snug italic block">
                 “{noteSelection.text.length > 80 ? noteSelection.text.slice(0, 77) + '…' : noteSelection.text}”
               </span>
             </div>
             <textarea
               ref={noteInputRef}
-              className="selection-note-input"
               placeholder="Add your own note, insight, or reaction…"
               value={noteCustomText}
               onChange={e => setNoteCustomText(e.target.value)}
               rows={3}
+              className="w-full min-h-[58px] resize-y bg-muted text-foreground border border-border rounded p-1.5 text-xs leading-[1.35] font-['Manrope',system-ui,sans-serif] outline-none focus:border-[#3b82f6]"
             />
-            <div className="selection-editor-actions">
-              <button type="button" className="selection-btn" onClick={handleSaveNoteSelection}>
+            <div className="flex gap-1.5 justify-end mt-0.5">
+              <button
+                type="button"
+                onClick={handleSaveNoteSelection}
+                className="bg-[var(--accent)] text-white border-none rounded px-2.5 py-px text-[11px] font-semibold cursor-pointer leading-[1.7] transition-[filter] duration-100 hover:brightness-110"
+              >
                 Save note
               </button>
             </div>

@@ -6,6 +6,11 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.57.0
+
+  Convert selection popup
+  Drop selection-popup CSS
+
 0.56.0
 
   Convert PlayerView hero
