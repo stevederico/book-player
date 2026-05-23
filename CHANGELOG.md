@@ -6,6 +6,11 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.48.0
+
+  Convert GuideProgress Tailwind
+  Drop guide-progress CSS
+
 0.47.0
 
   Orchestrate full pipeline

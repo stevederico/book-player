@@ -65,6 +65,13 @@ const STATUS_LABELS = {
   missing: '·',
 };
 
+const STATUS_ICON_STYLES = {
+  done:    'bg-success/15 text-success',
+  running: 'bg-warning/15 text-warning',
+  failed:  'bg-destructive/20 text-destructive',
+  missing: 'bg-muted text-muted-foreground',
+};
+
 export default function GuideProgress({ slug, guide, onRefresh }) {
   const pollersRef = useRef({});
 
@@ -145,23 +152,29 @@ export default function GuideProgress({ slug, guide, onRefresh }) {
   );
 
   return (
-    <div className="guide-progress">
-      <div className="guide-progress-head">
+    <div className="flex flex-col gap-4 text-[13px]">
+      <div className="flex items-baseline justify-between pb-2 border-b border-border">
         <strong>Guide completeness</strong>
-        <span className="guide-progress-count">
+        <span className="text-muted-foreground tabular-nums">
           {doneSteps} / {totalSteps} {allDone ? '— complete' : anyRunning ? '— building…' : ''}
         </span>
         {allDone && guide.visibility !== 'public' && (
-          <button type="button" className="gp-run-btn" onClick={publish}>
+          <button
+            type="button"
+            onClick={publish}
+            className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full border border-border bg-transparent text-foreground cursor-pointer transition-colors hover:bg-muted hover:border-foreground disabled:opacity-50 disabled:cursor-default"
+          >
             Publish
           </button>
         )}
       </div>
 
       {PHASES.map(phase => (
-        <div key={phase.name} className="guide-progress-phase">
-          <div className="guide-progress-phase-name">{phase.name}</div>
-          <ul className="guide-progress-list">
+        <div key={phase.name}>
+          <div className="font-['Bricolage_Grotesque'] text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground mb-1.5">
+            {phase.name}
+          </div>
+          <ul className="list-none m-0 p-0 flex flex-col gap-0.5">
             {phase.steps.map(step => {
               const status = statusFor(step, guide);
               const serverJob = step.run ? guide.jobs?.[step.run] : null;
@@ -169,16 +182,21 @@ export default function GuideProgress({ slug, guide, onRefresh }) {
                 ? `${serverJob.chunksDone || 0}/${serverJob.chunksTotal}`
                 : null;
               const serverError = status === 'failed' && serverJob?.error;
+              const iconCls = STATUS_ICON_STYLES[status];
+              const labelCls = status === 'missing' ? 'text-muted-foreground' : 'text-foreground';
               return (
-                <li key={step.key} className={`gp-row gp-row-${status}`}>
-                  <span className={`gp-icon gp-icon-${status}`} aria-hidden="true">
+                <li key={step.key} className="grid grid-cols-[22px_1fr_auto_auto] items-center gap-2.5 py-1.5 rounded-md">
+                  <span
+                    className={`inline-flex size-[18px] items-center justify-center rounded-full text-xs font-bold font-['Bricolage_Grotesque'] ${iconCls}`}
+                    aria-hidden="true"
+                  >
                     {STATUS_LABELS[status]}
                   </span>
-                  <span className="gp-label">{step.label}</span>
-                  {progress && <span className="gp-ms">{progress}</span>}
-                  {status === 'running' && !progress && <span className="gp-ms">running…</span>}
+                  <span className={labelCls}>{step.label}</span>
+                  {progress && <span className="text-[11px] text-muted-foreground tabular-nums">{progress}</span>}
+                  {status === 'running' && !progress && <span className="text-[11px] text-muted-foreground tabular-nums">running…</span>}
                   {serverError && (
-                    <div className="gp-error">{serverError}</div>
+                    <div className="col-start-2 -col-end-1 text-[11px] text-destructive mt-0.5">{serverError}</div>
                   )}
                 </li>
               );
