@@ -6,6 +6,15 @@
   Dash-prefixed items = still open (todo list).
 -->
 
+0.56.0
+
+  Convert PlayerView hero
+  Convert overlay timeline
+  Convert yt-bar controls
+  Convert captions feedback
+  State via data-attrs
+  Drop hero player CSS
+
 0.55.0
 
   Fix Kokoro coarticulation

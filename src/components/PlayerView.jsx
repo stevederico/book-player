@@ -56,9 +56,7 @@ export default function PlayerView() {
   function showControls(immediate = false) {
     pointerInsideRef.current = true;
     // Sync DOM update for instant show on enter/move (before React re-render)
-    if (heroRef.current) {
-      heroRef.current.classList.add('controls-visible');
-    }
+    if (heroRef.current) heroRef.current.dataset.controls = 'visible';
     setControlsVisible(true);
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     // Auto-hide only while actively playing and no menus/popups are open
@@ -67,9 +65,7 @@ export default function PlayerView() {
       const delay = immediate ? 800 : 2200;
       hideTimerRef.current = setTimeout(() => {
         setControlsVisible(false);
-        if (heroRef.current) {
-          heroRef.current.classList.remove('controls-visible');
-        }
+        if (heroRef.current) delete heroRef.current.dataset.controls;
       }, delay);
     }
   }
@@ -80,9 +76,7 @@ export default function PlayerView() {
       try { document.activeElement.blur(); } catch {}
     }
     // Sync DOM update for instant hide as soon as cursor leaves the player area
-    if (heroRef.current) {
-      heroRef.current.classList.remove('controls-visible');
-    }
+    if (heroRef.current) delete heroRef.current.dataset.controls;
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     setControlsVisible(false);
   }
@@ -92,9 +86,7 @@ export default function PlayerView() {
     if (!pointerInsideRef.current) return;
     if (!playing || menuOpen || chaptersMenuOpen || noteSelection) {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      if (heroRef.current) {
-        heroRef.current.classList.add('controls-visible');
-      }
+      if (heroRef.current) heroRef.current.dataset.controls = 'visible';
       setControlsVisible(true);
     }
     return () => {
@@ -619,26 +611,41 @@ export default function PlayerView() {
           </div>
         </details>
       )}
-      <div className="player-container">
-        <div className="player-main">
+      <div className="max-w-full">
+        <div>
           <div
-            className={`hero${playing ? '' : ' paused'}${showSplit ? ' split' : ''}${controlsVisible ? ' controls-visible' : ''}`}
             ref={heroRef}
             onPointerEnter={showControls}
             onPointerMove={showControls}
             onPointerLeave={hideControls}
             onClick={handleHeroClick}
+            data-paused={!playing || undefined}
+            data-split={showSplit || undefined}
+            data-controls={controlsVisible ? 'visible' : undefined}
+            className="group/hero relative w-full aspect-video max-h-[75vh] overflow-hidden m-0 bg-black cursor-pointer"
           >
             {showSplit ? (
-              <div className="hero-split">
-                <div className="hero-pane">
-                  {heroSrc && <div className="hero-backdrop" style={{ backgroundImage: `url(${heroSrc})` }} aria-hidden="true" />}
-                  {heroSrc && <img className="hero-half" alt="Current illustration" src={heroSrc} />}
+              <div className="grid grid-cols-[1.25fr_1fr] gap-px w-full h-full relative z-[1]">
+                <div className="relative w-full h-full overflow-hidden bg-black">
+                  {heroSrc && (
+                    <div
+                      aria-hidden="true"
+                      style={{ backgroundImage: `url(${heroSrc})` }}
+                      className="absolute inset-0 bg-cover bg-center bg-no-repeat blur-[48px] saturate-[1.3] scale-[1.2] opacity-65 z-0 pointer-events-none"
+                    />
+                  )}
+                  {heroSrc && (
+                    <img
+                      alt="Current illustration"
+                      src={heroSrc}
+                      className="relative z-[1] w-full h-full object-contain block"
+                    />
+                  )}
                 </div>
                 <div
-                  className="hero-pane hero-transcript-pane"
                   ref={sideTranscriptScrollRef}
                   onClick={e => e.stopPropagation()}
+                  className="relative w-full h-full overflow-y-auto bg-[var(--hero-transcript-bg)] py-10 px-[clamp(24px,6vw,56px)] pb-28 font-['Literata',Charter,Georgia,serif] text-[1.15rem] leading-[1.55] text-foreground text-left cursor-default scrollbar-thin"
                 >
                   <TranscriptView
                     paras={transcriptParas}
@@ -653,72 +660,89 @@ export default function PlayerView() {
             ) : (
               heroSrc && (
                 <>
-                  <div className="hero-backdrop" style={{ backgroundImage: `url(${heroSrc})` }} aria-hidden="true" />
-                  <img id="main-img" alt="Current illustration" src={heroSrc} />
+                  <div
+                    aria-hidden="true"
+                    style={{ backgroundImage: `url(${heroSrc})` }}
+                    className="absolute inset-0 bg-cover bg-center bg-no-repeat blur-[48px] saturate-[1.3] scale-[1.2] opacity-65 z-0 pointer-events-none"
+                  />
+                  <img
+                    id="main-img"
+                    alt="Current illustration"
+                    src={heroSrc}
+                    className="relative z-[1] w-full h-full object-contain block"
+                  />
                 </>
               )
             )}
 
-            <div className="overlay">
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-12 text-foreground pointer-events-none opacity-0 transition-opacity duration-200 z-[5] group-hover/hero:opacity-100 group-data-[controls=visible]/hero:opacity-100">
               <div
-                className="timeline"
                 ref={timelineRef}
                 onPointerDown={handleTimelinePointerDown}
                 onClick={e => e.stopPropagation()}
+                className="relative w-full h-[3px] bg-[var(--timeline-bg)] cursor-pointer z-10 mb-2 transition-[height] duration-150 pointer-events-none group-hover/hero:pointer-events-auto group-data-[controls=visible]/hero:pointer-events-auto group-focus-within/hero:pointer-events-auto group-data-[paused]/hero:pointer-events-auto group-hover/hero:h-1.5 group-data-[controls=visible]/hero:h-1.5 group-data-[paused]/hero:h-1.5"
               >
-                <div className="timeline-progress" style={{ width: pct + '%' }} />
-                <div className="chapter-markers">
+                <div
+                  style={{ width: pct + '%' }}
+                  className="absolute h-full bg-[var(--accent)] transition-[width] duration-[50ms] linear shadow-[0_0_8px_rgba(var(--accent-glow),0.5)]"
+                />
+                <div className="absolute top-0 left-0 right-0 h-full pointer-events-none z-[11]">
                   {chapters.map((c, i) => (
                     <div
                       key={i}
-                      className={`marker${i === activeIdx ? ' active' : ''}`}
+                      data-active={i === activeIdx || undefined}
                       style={{ left: ((c.time / dur) * 100) + '%' }}
                       title={c.title}
                       onClick={e => { e.stopPropagation(); jumpToChapter(c, i); }}
+                      className="absolute w-0.5 h-full bg-[var(--marker-bg)] top-0 -translate-x-1/2 cursor-pointer pointer-events-auto opacity-0 transition-[opacity,width,background-color] duration-150 group-hover/hero:opacity-100 group-data-[controls=visible]/hero:opacity-100 hover:bg-[var(--marker-active)] hover:w-[3px] data-[active]:bg-[var(--marker-active)]"
                     />
                   ))}
                 </div>
-                <div className="note-markers">
+                <div className="absolute -top-[5px] left-0 right-0 h-3 pointer-events-none z-[13]">
                   {duration > 0 && noteAnchors.map((anchor, i) => (
                     <div
                       key={`note-${i}`}
-                      className="note-marker"
                       style={{ left: `${(anchor.time / duration) * 100}%` }}
                       onClick={e => {
                         e.stopPropagation();
                         seekToTime(anchor.time);
-                        setPanel('transcript'); // make sure the transcript is visible
-                        setNoteHighlight({
-                          start: anchor.startWord,
-                          end: anchor.endWord,
-                        });
+                        setPanel('transcript');
+                        setNoteHighlight({ start: anchor.startWord, end: anchor.endWord });
                       }}
                       title={`Note: ${anchor.selectedText?.slice(0, 60)}${anchor.selectedText?.length > 60 ? '…' : ''}`}
+                      className="absolute -top-[3px] w-3 h-3.5 -translate-x-1/2 cursor-pointer pointer-events-none opacity-0 transition-[opacity,transform] duration-150 flex items-center justify-center z-[13] group-hover/hero:opacity-100 group-hover/hero:pointer-events-auto group-data-[paused]/hero:opacity-100 group-data-[paused]/hero:pointer-events-auto group-focus-within/hero:opacity-100 group-focus-within/hero:pointer-events-auto hover:scale-125 hover:z-[14]"
                     >
-                      <svg width="10" height="12" viewBox="0 0 10 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <svg width="10" height="12" viewBox="0 0 10 12" fill="none" xmlns="http://www.w3.org/2000/svg" className="transition-transform duration-100 hover:scale-110">
                         <path d="M1.5 1H8.5V11L5 8.2L1.5 11V1Z" fill="#fbbf24" stroke="#fff" strokeWidth="1.2" strokeLinejoin="round"/>
                       </svg>
                     </div>
                   ))}
                 </div>
-                <div className="timeline-thumb" style={{ left: pct + '%' }} />
+                <div
+                  style={{ left: pct + '%' }}
+                  className="absolute top-1/2 size-3.5 bg-[var(--accent)] border-none rounded-full -translate-x-1/2 -translate-y-1/2 scale-0 shadow-[0_0_0_3px_rgba(var(--accent-glow),0.25)] opacity-0 transition-[opacity,transform] duration-150 pointer-events-none z-[12] group-hover/hero:opacity-100 group-hover/hero:scale-100 group-data-[controls=visible]/hero:opacity-100 group-data-[controls=visible]/hero:scale-100"
+                />
               </div>
-              <div className="overlay-inner">
-                <div className="yt-bar">
+              <div className="px-4 pb-3.5 pointer-events-none group-hover/hero:pointer-events-auto group-data-[controls=visible]/hero:pointer-events-auto">
+                <div className="flex items-center gap-2 text-white">
                   <button
-                    className={`play-btn${playing ? ' playing' : ''}`}
+                    type="button"
                     title="Play/Pause (Space)"
                     aria-label={playing ? 'Pause' : 'Play'}
                     onClick={togglePlay}
+                    className="bg-transparent border-none text-white cursor-pointer p-1.5 opacity-90 inline-flex items-center transition-[opacity,color,transform] duration-150 hover:opacity-100 hover:text-[var(--accent-hot)] hover:scale-105"
                   >
-                    <svg className="icon-play" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-                    <svg className="icon-pause" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z" /></svg>
+                    {playing ? (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z" /></svg>
+                    ) : (
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                    )}
                   </button>
 
-                  <div className="time-group">
-                    <span className="time">{fmt(current / rate)}</span>
-                    <span className="time-sep">/</span>
-                    <span className="time">{fmt(dur / rate)}</span>
+                  <div className="inline-flex items-center gap-1.5 text-white text-[0.82rem] tabular-nums [text-shadow:0_1px_4px_rgba(0,0,0,0.6)]">
+                    <span>{fmt(current / rate)}</span>
+                    <span className="opacity-60">/</span>
+                    <span>{fmt(dur / rate)}</span>
                   </div>
 
                   <PlayerChaptersMenu
@@ -731,8 +755,8 @@ export default function PlayerView() {
                     activeChapterItemRef={activeChapterItemRef}
                   />
 
-                  <div className="volume-control" title="Volume">
-                    <svg className="vol-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <div className="flex items-center gap-1.5 ml-auto text-muted-foreground" title="Volume">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-white opacity-90 block">
                       <path d="M11 5 6 9H2v6h4l5 4z" />
                       <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
                       <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
@@ -741,16 +765,18 @@ export default function PlayerView() {
                       type="range"
                       min="0" max="1" step="0.05" defaultValue="1"
                       onInput={e => { if (audioRef.current) audioRef.current.volume = parseFloat(e.target.value); }}
+                      className="w-[78px] accent-[var(--accent)]"
                     />
                   </div>
-                  <div className="settings-menu" ref={menuRef}>
+                  <div ref={menuRef} className="relative inline-flex items-center">
                     <button
-                      className="gear-btn"
+                      type="button"
                       title="Settings"
                       aria-label="Settings"
                       aria-haspopup="menu"
                       aria-expanded={menuOpen}
                       onClick={() => setMenuOpen(o => !o)}
+                      className="bg-transparent border-none text-white cursor-pointer p-1.5 opacity-85 inline-flex items-center transition-[opacity,color,transform] duration-150 hover:opacity-100 hover:text-[var(--accent-hot)] hover:scale-105"
                     >
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                         <circle cx="12" cy="12" r="3" />
@@ -777,30 +803,40 @@ export default function PlayerView() {
                     )}
                   </div>
                   <button
-                    className={`cc-btn${captionsOn ? ' active' : ''}`}
+                    type="button"
                     title={captionsOn ? 'Captions on (c)' : 'Captions off (c)'}
                     aria-label={captionsOn ? 'Turn captions off' : 'Turn captions on'}
                     aria-pressed={captionsOn}
                     onClick={toggleCaptions}
+                    data-active={captionsOn || undefined}
+                    className="relative bg-transparent border-none text-white cursor-pointer p-1.5 opacity-85 inline-flex items-center transition-[opacity,color,transform] duration-150 hover:opacity-100 hover:text-[var(--accent-hot)] hover:scale-105 data-[active]:text-[var(--accent-hot)] data-[active]:opacity-100 data-[active]:after:content-[''] data-[active]:after:absolute data-[active]:after:left-1.5 data-[active]:after:right-1.5 data-[active]:after:-bottom-0.5 data-[active]:after:h-0.5 data-[active]:after:bg-current data-[active]:after:rounded-[1px]"
                   >
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                       <path d="M19 4H5a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3zM11 11.5H9.5v-.5h-2v2h2v-.5H11v1a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zm7 0h-1.5v-.5h-2v2h2v-.5H18v1a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1z" />
                     </svg>
                   </button>
-                  <button className="fs-btn" title="Fullscreen (f)" onClick={toggleFs}>⛶</button>
+                  <button
+                    type="button"
+                    title="Fullscreen (f)"
+                    onClick={toggleFs}
+                    className="bg-transparent border-none text-white text-lg cursor-pointer px-1.5 py-0.5 opacity-85 transition-[opacity,color,transform] duration-150 hover:opacity-100 hover:text-[var(--accent-hot)] hover:scale-110"
+                  >⛶</button>
                 </div>
               </div>
             </div>
 
             {activeCaption && !showSplit && (
-              <div className="cc-box" aria-live="polite">
-                <span className="cc-text">{activeCaption.text}</span>
+              <div
+                aria-live="polite"
+                className="absolute left-1/2 bottom-16 -translate-x-1/2 max-w-[min(85%,900px)] py-1.5 px-3.5 bg-black/80 rounded text-white text-[clamp(16px,2.2vw,22px)] leading-[1.35] font-medium text-center pointer-events-none z-[4] text-balance group-hover/hero:bottom-24 group-data-[controls=visible]/hero:bottom-24 group-focus-within/hero:bottom-24"
+              >
+                <span>{activeCaption.text}</span>
               </div>
             )}
 
             {feedback && (
-              <div className="play-feedback" key={feedback.id} aria-hidden="true">
-                <div className="play-feedback-icon">
+              <div key={feedback.id} aria-hidden="true" className="absolute inset-0 flex items-center justify-center z-[25] pointer-events-none">
+                <div className="size-[72px] bg-black/60 rounded-full flex items-center justify-center text-white animate-[feedback-pop_600ms_ease-out_forwards]">
                   {feedback.kind === 'play' ? (
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                   ) : (
@@ -854,9 +890,11 @@ export default function PlayerView() {
         </div>
       </div>
 
-      <div className="chapters-section">
-        <div className="player-heading">
-          <h1 className="player-heading-title">{guide.title || ''}</h1>
+      <div className="my-2 mx-auto mb-6 bg-transparent border-none rounded-none py-0 px-2 max-w-[1280px]">
+        <div className="flex flex-col gap-1 pb-2.5 pl-2">
+          <h1 className="font-['Bricolage_Grotesque',system-ui,sans-serif] text-[1.6rem] font-extrabold tracking-[-0.03em] m-0 text-foreground [font-variation-settings:'opsz'_48]">
+            {guide.title || ''}
+          </h1>
           <div className="flex gap-2.5 items-start">
             <div
               aria-hidden="true"
