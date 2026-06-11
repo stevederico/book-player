@@ -8,11 +8,11 @@ import { useEffect, useState } from 'react';
  *
  * SSR-safe: defaults to false when `window` is unavailable.
  *
- * @param {number} [breakpoint=768] - Pixel width below which `isMobile` is true.
- * @returns {boolean}
+ * @param breakpoint - Pixel width below which `isMobile` is true.
+ * @returns Whether the viewport is below the breakpoint.
  */
-export function useIsMobile(breakpoint = 768) {
-  const [isMobile, setIsMobile] = useState(() => {
+export function useIsMobile(breakpoint = 768): boolean {
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return false;
     return window.matchMedia(`(max-width: ${breakpoint - 1}px)`).matches;
   });
@@ -20,7 +20,7 @@ export function useIsMobile(breakpoint = 768) {
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
     const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
-    const onChange = e => setIsMobile(e.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
     setIsMobile(mql.matches);
     mql.addEventListener('change', onChange);
     return () => mql.removeEventListener('change', onChange);

@@ -1,4 +1,10 @@
-import React from 'react';
+import type { TranscriptParagraph } from '../utils/playerUtils';
+
+/** Side-transcript text-size tier. */
+export type TranscriptSize = 'small' | 'medium' | 'large';
+
+/** Settings sub-page shown in the panel. */
+export type SettingsPage = 'main' | 'textSize' | 'speed';
 
 const PANEL_DESKTOP_CLS =
   "absolute bottom-[calc(100%+10px)] right-0 min-w-[300px] bg-[var(--glass-bg)] backdrop-blur-[22px] backdrop-saturate-[1.6] border border-[var(--glass-border)] rounded-2xl py-1.5 px-0 z-20 shadow-[0_16px_48px_rgba(0,0,0,0.55)] text-foreground font-['Manrope',system-ui,sans-serif] overflow-hidden";
@@ -21,7 +27,12 @@ const TOGGLE_TRACK_CLS =
 const TOGGLE_KNOB_CLS =
   "absolute top-0.5 left-0.5 size-4 rounded-full bg-[var(--knob)] data-[on]:bg-[var(--knob-on)] data-[on]:translate-x-4 transition-[transform,background-color] duration-200";
 
-function Toggle({ on }) {
+/**
+ * Pill toggle visual (read-only; controlled by the parent button's click).
+ *
+ * @param props.on - Whether the toggle is in the "on" state.
+ */
+function Toggle({ on }: { on: boolean }) {
   return (
     <span data-on={on || undefined} className={TOGGLE_TRACK_CLS} aria-hidden="true">
       <span data-on={on || undefined} className={TOGGLE_KNOB_CLS} />
@@ -29,13 +40,47 @@ function Toggle({ on }) {
   );
 }
 
+const TRANSCRIPT_SIZE_LABEL: Record<TranscriptSize, string> = { small: 'Small', medium: 'Medium', large: 'Large' };
+
+/** Props for {@link PlayerSettings}. */
+export interface PlayerSettingsProps {
+  /** Open/close the settings menu. */
+  setMenuOpen: (open: boolean) => void;
+  /** Whether the split transcript pane is enabled. */
+  splitTranscript: boolean;
+  /** Toggle the split transcript pane. */
+  toggleSplitTranscript: () => void;
+  /** Whether captions are on. */
+  captionsOn: boolean;
+  /** Toggle captions. */
+  toggleCaptions: () => void;
+  /** Whether dark mode is active. */
+  isDarkMode: boolean;
+  /** Toggle light/dark theme. */
+  toggleTheme: () => void;
+  /** Current playback rate. */
+  rate: number;
+  /** Change the playback rate. */
+  changeRate: (rate: number) => void;
+  /** Current settings sub-page. */
+  settingsPage: SettingsPage;
+  /** Navigate to a settings sub-page. */
+  setSettingsPage: (page: SettingsPage) => void;
+  /** Parsed transcript paragraphs (drives transcript-related options). */
+  transcriptParas: TranscriptParagraph[] | null;
+  /** Current transcript size tier. */
+  transcriptSize?: TranscriptSize;
+  /** Change the transcript size tier. */
+  changeTranscriptSize?: (size: TranscriptSize) => void;
+  /** Whether the panel renders in mobile (sheet) mode. */
+  isMobile?: boolean;
+}
+
 /**
  * YouTube-style settings panel for the audio player.
  * Supports a sub-page for Playback speed; direct toggles for transcript and captions.
  * Now includes dark/light mode switch using the app's ThemeProvider.
  */
-const TRANSCRIPT_SIZE_LABEL = { small: 'Small', medium: 'Medium', large: 'Large' };
-
 export default function PlayerSettings({
   setMenuOpen,
   splitTranscript,
@@ -52,7 +97,7 @@ export default function PlayerSettings({
   transcriptSize = 'medium',
   changeTranscriptSize,
   isMobile = false,
-}) {
+}: PlayerSettingsProps) {
   return (
     <div className={isMobile ? PANEL_MOBILE_CLS : PANEL_DESKTOP_CLS} role="menu">
       {settingsPage === 'main' && (
@@ -161,7 +206,7 @@ export default function PlayerSettings({
             </svg>
             <span>Text size</span>
           </button>
-          {['small', 'medium', 'large'].map(size => (
+          {(['small', 'medium', 'large'] as const).map(size => (
             <button
               key={size}
               role="menuitemradio"

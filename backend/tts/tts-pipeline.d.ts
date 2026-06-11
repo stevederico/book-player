@@ -1,0 +1,34 @@
+/**
+ * Ambient declarations for tts-pipeline.js (full guide synthesis pipeline).
+ *
+ * The implementation stays JavaScript; this file types its public surface.
+ */
+import type { WordTiming } from './kokoro.d.ts';
+
+/** Progress event emitted by synthesizeGuide as chunks complete. */
+export interface TtsProgress {
+  /** Chunks synthesized so far. */
+  chunksDone: number;
+  /** Total chunks to synthesize. */
+  chunksTotal: number;
+}
+
+/** Normalize text for TTS (expand abbreviations, strip markup, etc.). */
+export function normalizeForTts(text: string): string;
+
+/**
+ * Synthesize a full guide: chunk the transcript, synthesize each chunk, and
+ * concatenate into a single MP3 with aligned word timings.
+ */
+export function synthesizeGuide(args: {
+  transcript: string;
+  voice?: string;
+  speed?: number;
+  onProgress?: (progress: TtsProgress) => void;
+}): Promise<{
+  audioMp3: Buffer;
+  words: WordTiming[];
+  totalDuration: number;
+  sampleRate: number;
+  transcript: string;
+}>;

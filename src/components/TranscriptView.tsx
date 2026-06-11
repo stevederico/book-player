@@ -1,17 +1,39 @@
 import { useEffect, useRef } from 'react';
+import type { Ref } from 'react';
+import type { TranscriptParagraph } from '../utils/playerUtils';
+
+/** A word range to re-highlight (used when previewing a saved note). */
+export interface NoteHighlightRange {
+  /** First highlighted word index. */
+  start: number;
+  /** Last highlighted word index. */
+  end: number;
+}
+
+/** Props for {@link TranscriptView}. */
+export interface TranscriptViewProps {
+  /** Parsed paragraphs from parseTranscript/useTranscript. */
+  paras: TranscriptParagraph[] | null;
+  /** Current playing word index for .active / .past styling. */
+  activeWord: number;
+  /** Seek to that word's time. */
+  onWordClick?: (wordIdx: number) => void;
+  /** Ref attached to the currently active word span for auto-scroll. */
+  activeRef?: Ref<HTMLSpanElement>;
+  /** Extra classes applied to the wrapper. */
+  className?: string;
+  /**
+   * Called after a meaningful drag selection. Parent shows the "create note"
+   * popup and can store the range to re-highlight the exact text later.
+   */
+  onTextSelected?: (selectedText: string, startWordIdx: number, endWordIdx: number) => void;
+  /** Word range to re-highlight as a saved note. */
+  highlightedNoteRange?: NoteHighlightRange | null;
+}
 
 /**
  * Reusable transcript renderer with word-level highlighting, click-to-seek, and drag-to-select support.
  * Used in both the main transcript panel and the split-view hero pane.
- *
- * @param {Array} paras - Array of {words: [{text, index}, ...]} paragraphs from parseTranscript/useTranscript
- * @param {number} activeWord - Current playing word index for .active / .past classes
- * @param {Function} [onWordClick] - (wordIdx) => void  Seek to that word's time
- * @param {object} [activeRef] - React ref to attach to the currently active word span for auto-scroll
- * @param {string} [className] - Extra classes (applied to wrapper)
- * @param {Function} [onTextSelected] - (selectedText: string, startWordIdx: number, endWordIdx: number) => void
- *        Called after a meaningful drag selection. Parent shows the "create note" popup
- *        and can store the range to re-highlight the exact text later.
  */
 export default function TranscriptView({
   paras,
@@ -21,8 +43,8 @@ export default function TranscriptView({
   className = '',
   onTextSelected,
   highlightedNoteRange,
-}) {
-  const containerRef = useRef(null);
+}: TranscriptViewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Detect drag selections inside *this* transcript instance only.
   // Listens for both `mouseup` (desktop) and `touchend` (iOS/iPadOS) since iOS Safari
@@ -32,7 +54,7 @@ export default function TranscriptView({
     const el = containerRef.current;
     if (!el || !onTextSelected) return;
 
-    let pending = null;
+    let pending: number | null = null;
 
     const handler = () => {
       // On touch devices the selection may need a tick to settle after the callout appears.
@@ -49,11 +71,11 @@ export default function TranscriptView({
         if (!el.contains(range.commonAncestorContainer)) return;
 
         // Collect word indices that overlap the current selection
-        const indices = [];
-        const spans = el.querySelectorAll('span.tw[data-idx]');
+        const indices: number[] = [];
+        const spans = el.querySelectorAll<HTMLSpanElement>('span.tw[data-idx]');
         for (const span of spans) {
           if (sel.containsNode(span, true)) {
-            const i = parseInt(span.dataset.idx || span.getAttribute('data-idx'), 10);
+            const i = parseInt(span.dataset.idx || span.getAttribute('data-idx') || '', 10);
             if (!isNaN(i)) indices.push(i);
           }
         }

@@ -1,20 +1,24 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { useParams, useSearchParams } from 'react-router';
-import GuideProgress from './GuideProgress.jsx';
+import GuideProgress from './GuideProgress';
 import {
   fmt,
   resolveAsset,
   findChapterIndex,
   timeAtWordIndex,
-  chunkIndexAtWord,
-} from '../utils/playerUtils.js';
-import { useTranscript } from '../hooks/useTranscript.js';
-import TranscriptView from './TranscriptView.jsx';
-import PlayerSettings from './PlayerSettings.jsx';
-import PlayerChaptersMenu from './PlayerChaptersMenu.jsx';
-import PlayerInfoPanel from './PlayerInfoPanel.jsx';
+} from '../utils/playerUtils';
+import type { Guide, Chapter } from '../utils/playerUtils';
+import { useTranscript } from '../hooks/useTranscript';
+import TranscriptView from './TranscriptView';
+import type { NoteHighlightRange } from './TranscriptView';
+import PlayerSettings from './PlayerSettings';
+import type { SettingsPage, TranscriptSize } from './PlayerSettings';
+import PlayerChaptersMenu from './PlayerChaptersMenu';
+import PlayerInfoPanel from './PlayerInfoPanel';
+import type { PanelTab } from './PlayerInfoPanel';
 import { useTheme } from '@stevederico/skateboard-ui/ThemeProvider';
-import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useIsMobile } from '../hooks/useIsMobile';
 import {
   Sheet,
   SheetContent,
@@ -22,54 +26,104 @@ import {
   SheetTitle,
 } from '@stevederico/skateboard-ui/shadcn/ui/sheet';
 
+/** Transient play/pause feedback flash overlay state. */
+interface Feedback {
+  /** Which action was flashed. */
+  kind: 'play' | 'pause';
+  /** Unique id to re-trigger the animation. */
+  id: number;
+}
+
+/** Bounding rect of the active text selection (for popup placement). */
+interface SelectionRect {
+  top: number;
+  left: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
+/** Active drag-selection awaiting a note action. */
+interface NoteSelection {
+  /** Selected text. */
+  text: string;
+  /** Playback time of the selection start. */
+  time: number;
+  /** Selection bounding rect, or null. */
+  rect: SelectionRect | null;
+  /** First selected word index. */
+  startWord: number;
+  /** Last selected word index. */
+  endWord: number;
+}
+
+/** A persisted note anchor used to re-highlight the original text. */
+interface NoteAnchor {
+  /** Playback time of the note. */
+  time: number;
+  /** First word index of the quote. */
+  startWord: number;
+  /** Last word index of the quote. */
+  endWord: number;
+  /** The selected quote text. */
+  selectedText: string;
+}
+
 // Side transcript font-size class per user-chosen size. All three scale with
 // viewport width via clamp() so the same setting reads well in a 1440 window
 // and a 4K fullscreen — the min/max bounds differ per size tier.
-const TRANSCRIPT_SIZE_CLS = {
+const TRANSCRIPT_SIZE_CLS: Record<TranscriptSize, string> = {
   small: 'text-[clamp(0.95rem,1.1vw,1.25rem)]',
   medium: 'text-[clamp(1.2rem,1.9vw,2.1rem)]',
   large: 'text-[clamp(1.3rem,2.2vw,2.5rem)]',
 };
 
+/**
+ * Full audiobook-style player: hero image, scrubbable timeline, captions,
+ * split transcript, chapters menu, settings, and note-taking.
+ *
+ * @component
+ * @returns The player view, or null until the guide loads.
+ */
 export default function PlayerView() {
   const { slug = 'the-brand-age' } = useParams();
   const [searchParams] = useSearchParams();
   const debugMode = searchParams.get('debug') === '1';
-  const [guide, setGuide] = useState(null);
+  const [guide, setGuide] = useState<Guide | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
   const [rate, setRate] = useState(1);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [settingsPage, setSettingsPage] = useState('main');
-  const [feedback, setFeedback] = useState(null);
-  const [panel, setPanel] = useState('summary');
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>('main');
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [panel, setPanel] = useState<PanelTab>('summary');
   const [captionsOn, setCaptionsOn] = useState(() => {
     try { return localStorage.getItem('pg.cc') !== '0'; } catch { return true; }
   });
   const [splitTranscript, setSplitTranscript] = useState(() => {
     try { return localStorage.getItem('pg.split') === '1'; } catch { return false; }
   });
-  const [transcriptSize, setTranscriptSize] = useState(() => {
+  const [transcriptSize, setTranscriptSize] = useState<TranscriptSize>(() => {
     try {
       const v = localStorage.getItem('pg.transcriptSize');
       return v === 'small' || v === 'medium' || v === 'large' ? v : 'medium';
     } catch { return 'medium'; }
   });
-  const changeTranscriptSize = (size) => {
+  const changeTranscriptSize = (size: TranscriptSize) => {
     setTranscriptSize(size);
     try { localStorage.setItem('pg.transcriptSize', size); } catch {}
   };
   const [controlsVisible, setControlsVisible] = useState(false);
-  const hideTimerRef = useRef(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerInsideRef = useRef(false);
   const [chaptersMenuOpen, setChaptersMenuOpen] = useState(false);
   const [notes, setNotes] = useState('');
-  const [noteSelection, setNoteSelection] = useState(null);
+  const [noteSelection, setNoteSelection] = useState<NoteSelection | null>(null);
   const [noteCustomText, setNoteCustomText] = useState('');
-  const [noteAnchors, setNoteAnchors] = useState([]);
-  const [noteHighlight, setNoteHighlight] = useState(null); // { start: number, end: number }
+  const [noteAnchors, setNoteAnchors] = useState<NoteAnchor[]>([]);
+  const [noteHighlight, setNoteHighlight] = useState<NoteHighlightRange | null>(null);
 
   const { resolvedTheme, setTheme } = useTheme();
   const isDarkMode = resolvedTheme === 'dark';
@@ -78,8 +132,10 @@ export default function PlayerView() {
     setTheme(isDarkMode ? 'light' : 'dark');
   }
 
-  // Controls overlay visibility with inactivity auto-hide (YouTube-style)
-  function showControls(immediate = false) {
+  // Controls overlay visibility with inactivity auto-hide (YouTube-style).
+  // Bound directly to pointer handlers, so `immediate` may receive the event
+  // object — any truthy value selects the short (800ms) auto-hide delay.
+  function showControls(immediate: unknown = false) {
     pointerInsideRef.current = true;
     // Sync DOM update for instant show on enter/move (before React re-render)
     if (heroRef.current) heroRef.current.dataset.controls = 'visible';
@@ -99,7 +155,7 @@ export default function PlayerView() {
     pointerInsideRef.current = false;
     // Drop focus inside the hero so :focus-within fallbacks don't keep controls visible
     if (heroRef.current && document.activeElement && heroRef.current.contains(document.activeElement)) {
-      try { document.activeElement.blur(); } catch {}
+      try { (document.activeElement as HTMLElement).blur(); } catch {}
     }
     // Sync DOM update for instant hide as soon as cursor leaves the player area
     if (heroRef.current) delete heroRef.current.dataset.controls;
@@ -120,16 +176,16 @@ export default function PlayerView() {
     };
   }, [playing, menuOpen, chaptersMenuOpen, noteSelection]);
 
-  const menuRef = useRef(null);
-  const chaptersMenuRef = useRef(null);
-  const activeChapterItemRef = useRef(null);
-  const selectionPopupRef = useRef(null);
-  const noteInputRef = useRef(null);
-  const feedbackTimerRef = useRef(null);
-  const transcriptScrollRef = useRef(null);
-  const activeWordRef = useRef(null);
-  const sideTranscriptScrollRef = useRef(null);
-  const sideActiveWordRef = useRef(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const chaptersMenuRef = useRef<HTMLDivElement>(null);
+  const activeChapterItemRef = useRef<HTMLButtonElement>(null);
+  const selectionPopupRef = useRef<HTMLDivElement>(null);
+  const noteInputRef = useRef<HTMLTextAreaElement>(null);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transcriptScrollRef = useRef<HTMLDivElement>(null);
+  const activeWordRef = useRef<HTMLSpanElement>(null);
+  const sideTranscriptScrollRef = useRef<HTMLDivElement>(null);
+  const sideActiveWordRef = useRef<HTMLSpanElement>(null);
   const userScrollUntilRef = useRef(0);
   const lastProgressSaveRef = useRef(0);
   const playheadRef = useRef(0);
@@ -139,8 +195,8 @@ export default function PlayerView() {
   useEffect(() => {
     // Sheet handles outside-click + Esc on mobile via onOpenChange; don't double-fire.
     if (!menuOpen || isMobile) return;
-    function onDoc(e) {
-      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    function onDoc(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
     }
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -152,8 +208,8 @@ export default function PlayerView() {
 
   useEffect(() => {
     if (!chaptersMenuOpen || isMobile) return;
-    function onDoc(e) {
-      if (chaptersMenuRef.current && !chaptersMenuRef.current.contains(e.target)) setChaptersMenuOpen(false);
+    function onDoc(e: MouseEvent) {
+      if (chaptersMenuRef.current && !chaptersMenuRef.current.contains(e.target as Node)) setChaptersMenuOpen(false);
     }
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -168,8 +224,8 @@ export default function PlayerView() {
   // Close selection note popup on outside click (like other menus)
   useEffect(() => {
     if (!noteSelection) return;
-    function onDoc(e) {
-      if (selectionPopupRef.current && !selectionPopupRef.current.contains(e.target)) {
+    function onDoc(e: MouseEvent) {
+      if (selectionPopupRef.current && !selectionPopupRef.current.contains(e.target as Node)) {
         setNoteSelection(null);
         setNoteCustomText('');
       }
@@ -181,7 +237,7 @@ export default function PlayerView() {
   // Escape key closes the popup and clears any leftover browser selection
   useEffect(() => {
     if (!noteSelection) return;
-    function onKey(e) {
+    function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         setNoteSelection(null);
         setNoteCustomText('');
@@ -210,7 +266,7 @@ export default function PlayerView() {
     return () => clearTimeout(t);
   }, [noteHighlight]);
 
-  function changeRate(r) {
+  function changeRate(r: number) {
     if (audioRef.current) audioRef.current.playbackRate = r;
     setRate(r);
   }
@@ -237,7 +293,7 @@ export default function PlayerView() {
     setNoteCustomText('');
   }, [slug]);
 
-  function persistAnchors(next) {
+  function persistAnchors(next: NoteAnchor[]) {
     setNoteAnchors(next);
     try {
       localStorage.setItem(`pg.noteAnchors.${slug}`, JSON.stringify(next));
@@ -246,7 +302,7 @@ export default function PlayerView() {
 
   // Notes textarea is the source of truth: when the user edits the textarea, drop any
   // anchor whose `[m:ss]` timestamp line no longer appears in the text.
-  function updateNotes(v) {
+  function updateNotes(v: string) {
     setNotes(v);
     try { localStorage.setItem(`pg.notes.${slug}`, v); } catch {}
     const surviving = noteAnchors.filter(a => v.includes(`[${fmt(a.time)}]`));
@@ -255,15 +311,15 @@ export default function PlayerView() {
     }
   }
 
-  function updateNoteAnchors(next) {
+  function updateNoteAnchors(next: NoteAnchor[]) {
     persistAnchors(next);
   }
 
-  const audioRef = useRef(null);
-  const heroRef = useRef(null);
-  const timelineRef = useRef(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const heroRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
 
-  const refetchGuide = useCallback(async () => {
+  const refetchGuide = useCallback(async (): Promise<Guide | null> => {
     try {
       const r = await fetch(`/api/guides/${encodeURIComponent(slug)}`);
       if (!r.ok) return null;
@@ -284,7 +340,7 @@ export default function PlayerView() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then(g => {
+      .then((g: Guide) => {
         if (cancelled) return;
         setGuide(g);
         setDuration(g.duration || 0);
@@ -305,18 +361,17 @@ export default function PlayerView() {
     totalWords,
     anchors,
     wordStartTimes,
-    captionChunks,
     activeWord,
     activeCaption,
   } = useTranscript(guide, duration, current, captionsOn);
 
   // Stable identity so memoized children (e.g. PlayerChaptersMenu) don't re-render
   // on every parent tick.
-  const chapters = useMemo(() => guide?.chapters || [], [guide]);
+  const chapters = useMemo<Chapter[]>(() => guide?.chapters || [], [guide]);
 
   useEffect(() => {
     if (!playing) return;
-    let raf;
+    let raf: number;
     const tick = () => {
       const a = audioRef.current;
       if (a) {
@@ -332,10 +387,11 @@ export default function PlayerView() {
   }, [playing, chapters]);
 
   useEffect(() => {
-    function onKey(e) {
+    function onKey(e: KeyboardEvent) {
       const a = audioRef.current;
       if (!a) return;
-      if (e.target.matches && e.target.matches('input,select,textarea')) return;
+      const target = e.target as HTMLElement;
+      if (target.matches && target.matches('input,select,textarea')) return;
       if (e.key === ' ' || e.key === 'k') {
         e.preventDefault();
         togglePlay();
@@ -370,16 +426,16 @@ export default function PlayerView() {
     flashFeedback(wasPaused ? 'play' : 'pause');
   }
 
-  function flashFeedback(kind) {
+  function flashFeedback(kind: Feedback['kind']) {
     setFeedback({ kind, id: Date.now() });
-    clearTimeout(feedbackTimerRef.current);
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
     feedbackTimerRef.current = setTimeout(() => setFeedback(null), 600);
   }
 
-  function handleHeroClick(e) {
+  function handleHeroClick(e: ReactMouseEvent<HTMLDivElement>) {
     // Don't toggle play when the click came from inside the controls overlay
     // (its own buttons handle their own actions; otherwise we'd double-toggle).
-    if (e.target.closest('[data-overlay]')) return;
+    if ((e.target as HTMLElement).closest('[data-overlay]')) return;
     togglePlay();
   }
 
@@ -450,7 +506,7 @@ export default function PlayerView() {
     const scroller = sideTranscriptScrollRef.current;
     if (!scroller) return;
 
-    let rafId;
+    let rafId: number;
 
     const tick = () => {
       if (Date.now() < userScrollUntilRef.current) {
@@ -496,10 +552,10 @@ export default function PlayerView() {
     return () => cancelAnimationFrame(rafId);
   }, [splitTranscript, playing]);
 
-  function seekToWord(wIdx) {
+  function seekToWord(wIdx: number) {
     const a = audioRef.current;
     if (!a || !totalWords || !duration) return;
-    let t;
+    let t: number;
     if (wordStartTimes && wordStartTimes[wIdx] != null) t = wordStartTimes[wIdx];
     else if (anchors) t = timeAtWordIndex(anchors, wIdx);
     else t = (wIdx / totalWords) * duration;
@@ -509,7 +565,7 @@ export default function PlayerView() {
 
   // Move the playhead without forcing playback — used when previewing a saved note
   // so the user isn't yanked into play (and their pg.progress.<slug> isn't overwritten).
-  function seekToTime(t) {
+  function seekToTime(t: number) {
     const a = audioRef.current;
     if (!a) return;
     const clamped = Math.max(0, Math.min(t, duration || 999999));
@@ -519,11 +575,11 @@ export default function PlayerView() {
   // Called by TranscriptView instances when user finishes a drag selection.
   // We store the exact word range so we can re-highlight the original text when the user
   // later clicks the note marker on the progress bar.
-  const handleTextSelected = useCallback((text, startIdx, endIdx) => {
+  const handleTextSelected = useCallback((text: string, startIdx: number, endIdx?: number) => {
     if (!anchors) return;
     const t = timeAtWordIndex(anchors, startIdx);
     const sel = window.getSelection();
-    let rect = null;
+    let rect: SelectionRect | null = null;
     if (sel && sel.rangeCount > 0) {
       const r = sel.getRangeAt(0).getBoundingClientRect();
       rect = { top: r.top, left: r.left, bottom: r.bottom, width: r.width, height: r.height };
@@ -551,7 +607,7 @@ export default function PlayerView() {
 
     // Persist structured anchor so we can re-highlight the exact text later
     if (noteSelection.startWord != null && noteSelection.endWord != null) {
-      const newAnchor = {
+      const newAnchor: NoteAnchor = {
         time: noteSelection.time,
         startWord: noteSelection.startWord,
         endWord: noteSelection.endWord,
@@ -574,7 +630,7 @@ export default function PlayerView() {
     setNoteCustomText('');
   }
 
-  const jumpToChapter = useCallback((ch, idx) => {
+  const jumpToChapter = useCallback((ch: Chapter, idx: number) => {
     const a = audioRef.current;
     if (!a) return;
     a.currentTime = ch.time || 0;
@@ -583,7 +639,7 @@ export default function PlayerView() {
   }, []);
 
   // --- Timeline scrubbing (click + drag) ---
-  function seekFromPointer(e) {
+  function seekFromPointer(e: PointerEvent) {
     const a = audioRef.current;
     const rect = timelineRef.current?.getBoundingClientRect();
     if (!a || !rect || !rect.width) return;
@@ -600,13 +656,13 @@ export default function PlayerView() {
     setCurrent(targetTime);
   }
 
-  function handleTimelinePointerDown(e) {
+  function handleTimelinePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     e.stopPropagation();
     scrubbingRef.current = true;
 
-    seekFromPointer(e);
+    seekFromPointer(e.nativeEvent);
 
-    const onMove = (ev) => {
+    const onMove = (ev: PointerEvent) => {
       if (scrubbingRef.current) {
         seekFromPointer(ev);
       }
@@ -630,8 +686,8 @@ export default function PlayerView() {
   // present, rotate between them every IMAGE_SWAP_SECONDS so the visual changes
   // through the chapter; otherwise just show whichever one exists.
   const IMAGE_SWAP_SECONDS = 10;
-  const chapterImages = [ch.image && ch.image.generated, ch.realImage].filter(Boolean);
-  const chapterStart = Number.isFinite(ch.time) ? ch.time : 0;
+  const chapterImages = [ch.image && ch.image.generated, ch.realImage].filter(Boolean) as string[];
+  const chapterStart = Number.isFinite(ch.time) ? (ch.time as number) : 0;
   const secondsInChapter = Math.max(0, current - chapterStart);
   const heroIdx = chapterImages.length > 0
     ? Math.floor(secondsInChapter / IMAGE_SWAP_SECONDS) % chapterImages.length
@@ -733,7 +789,7 @@ export default function PlayerView() {
                     <div
                       key={i}
                       data-active={i === activeIdx || undefined}
-                      style={{ left: ((c.time / dur) * 100) + '%' }}
+                      style={{ left: (((c.time ?? 0) / dur) * 100) + '%' }}
                       title={c.title}
                       onClick={e => { e.stopPropagation(); jumpToChapter(c, i); }}
                       className="absolute w-0.5 h-full bg-[var(--marker-bg)] top-0 -translate-x-1/2 cursor-pointer pointer-events-auto opacity-0 transition-[opacity,width,background-color] duration-150 group-hover/hero:opacity-100 group-data-[controls=visible]/hero:opacity-100 hover:bg-[var(--marker-active)] hover:w-[3px] data-[active]:bg-[var(--marker-active)]"
@@ -806,7 +862,7 @@ export default function PlayerView() {
                     <input
                       type="range"
                       min="0" max="1" step="0.05" defaultValue="1"
-                      onInput={e => { if (audioRef.current) audioRef.current.volume = parseFloat(e.target.value); }}
+                      onInput={e => { if (audioRef.current) audioRef.current.volume = parseFloat(e.currentTarget.value); }}
                       className="w-[78px] accent-[var(--accent)]"
                     />
                   </div>
@@ -932,7 +988,7 @@ export default function PlayerView() {
               setPlaying(false);
               const a = audioRef.current;
               if (a) {
-                try { localStorage.setItem(`pg.progress.${slug}`, a.currentTime); } catch {}
+                try { localStorage.setItem(`pg.progress.${slug}`, String(a.currentTime)); } catch {}
               }
             }}
             onEnded={() => {
@@ -958,7 +1014,7 @@ export default function PlayerView() {
               const now = Date.now();
               if (now - lastProgressSaveRef.current > 5000) {
                 lastProgressSaveRef.current = now;
-                try { localStorage.setItem(`pg.progress.${slug}`, t); } catch {}
+                try { localStorage.setItem(`pg.progress.${slug}`, String(t)); } catch {}
               }
             }}
           />

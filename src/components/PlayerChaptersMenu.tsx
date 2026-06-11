@@ -1,6 +1,8 @@
-import React, { forwardRef, memo, useCallback } from 'react';
+import { forwardRef, memo, useCallback } from 'react';
+import type { Ref } from 'react';
 import { fmt } from '../utils/playerUtils';
-import { useIsMobile } from '../hooks/useIsMobile.js';
+import type { Chapter } from '../utils/playerUtils';
+import { useIsMobile } from '../hooks/useIsMobile';
 import {
   Sheet,
   SheetContent,
@@ -18,6 +20,22 @@ const CHAPTER_TIME_CLS =
 
 const CHAPTER_TITLE_CLS = "flex-1 min-w-0 whitespace-normal leading-[1.35]";
 
+/** Props for a single chapter row. */
+interface ChapterRowProps {
+  /** Chapter data. */
+  chapter: Chapter;
+  /** Row index. */
+  index: number;
+  /** Whether this is the active chapter. */
+  isActive: boolean;
+  /** Whether the menu is rendered in mobile (sheet) mode. */
+  isMobile: boolean;
+  /** Ref attached to the active row for scroll-into-view. */
+  activeRef?: Ref<HTMLButtonElement>;
+  /** Selection handler. */
+  onSelect: (chapter: Chapter, index: number) => void;
+}
+
 const ChapterRow = memo(function ChapterRow({
   chapter,
   index,
@@ -25,7 +43,7 @@ const ChapterRow = memo(function ChapterRow({
   isMobile,
   activeRef,
   onSelect,
-}) {
+}: ChapterRowProps) {
   const handleClick = () => onSelect(chapter, index);
   return (
     <button
@@ -42,7 +60,28 @@ const ChapterRow = memo(function ChapterRow({
   );
 });
 
-const PlayerChaptersMenu = memo(forwardRef(function PlayerChaptersMenu({
+/** Props for {@link PlayerChaptersMenu}. */
+export interface PlayerChaptersMenuProps {
+  /** Full chapter list. */
+  chapters: Chapter[];
+  /** Index of the active chapter. */
+  activeIdx: number;
+  /** Whether the chapters menu is open. */
+  chaptersMenuOpen: boolean;
+  /** Setter to open/close the chapters menu. */
+  setChaptersMenuOpen: (open: boolean | ((o: boolean) => boolean)) => void;
+  /** Jump playback to a chapter. */
+  jumpToChapter: (chapter: Chapter, index: number) => void;
+  /** Ref attached to the active chapter row for scroll-into-view. */
+  activeChapterItemRef?: Ref<HTMLButtonElement>;
+}
+
+/**
+ * Chapter jump menu shown in the player controls. Renders a bottom sheet on
+ * mobile and an anchored popover on desktop. Forwards a ref to the wrapper so
+ * the parent can detect outside clicks.
+ */
+const PlayerChaptersMenu = memo(forwardRef<HTMLDivElement, PlayerChaptersMenuProps>(function PlayerChaptersMenu({
   chapters,
   activeIdx,
   chaptersMenuOpen,
@@ -54,7 +93,7 @@ const PlayerChaptersMenu = memo(forwardRef(function PlayerChaptersMenu({
 
   // Stable per-row click handler so memoized rows don't re-render
   // when only their own active state flips.
-  const handleSelect = useCallback((chapter, index) => {
+  const handleSelect = useCallback((chapter: Chapter, index: number) => {
     jumpToChapter(chapter, index);
     setChaptersMenuOpen(false);
   }, [jumpToChapter, setChaptersMenuOpen]);
