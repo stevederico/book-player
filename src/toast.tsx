@@ -1,19 +1,52 @@
 import { useEffect, useState } from 'react';
 
-const listeners = new Set();
+/** Visual variant of a toast. */
+type ToastVariant = 'default' | 'error' | 'success';
+
+/** Options accepted when pushing a toast. */
+interface ToastOptions {
+  /** Visual variant (default: 'default'). */
+  variant?: ToastVariant;
+  /** Auto-dismiss delay in ms; 0 disables auto-dismiss (default: 5000). */
+  duration?: number;
+}
+
+/** A live toast item in the queue. */
+interface ToastItem {
+  id: number;
+  message: string;
+  variant: ToastVariant;
+  duration: number;
+}
+
+/** Internal queue event broadcast to subscribed Toasters. */
+type ToastEvent =
+  | { type: 'add'; item: ToastItem }
+  | { type: 'remove'; id: number };
+
+type ToastListener = (event: ToastEvent) => void;
+
+/** Signature of the `toast()` function plus its `.error` / `.success` helpers. */
+interface ToastFn {
+  (message: string, options?: ToastOptions): number;
+  error: (message: string, options?: ToastOptions) => number;
+  success: (message: string, options?: ToastOptions) => number;
+}
+
+const listeners = new Set<ToastListener>();
 let nextId = 1;
 
 /**
  * Push a transient toast notification. Returns the toast id so the caller
  * can dismiss it early via dismissToast(id).
  *
- * @param {string} message - Plain-text message shown in the toast body.
- * @param {{variant?: 'default'|'error'|'success', duration?: number}} [options]
- * @returns {number} toast id
+ * @param message - Plain-text message shown in the toast body.
+ * @param options - Variant + duration options.
+ * @returns toast id
  */
-export function toast(message, options = {}) {
+export const toast = ((message: string, options: ToastOptions = {}): number => {
   const id = nextId++;
-  const item = {
+  const item: ToastItem = {
     id,
     message,
     variant: options.variant || 'default',
@@ -24,16 +57,16 @@ export function toast(message, options = {}) {
     setTimeout(() => listeners.forEach(fn => fn({ type: 'remove', id })), item.duration);
   }
   return id;
-}
+}) as ToastFn;
 
 toast.error = (message, options = {}) => toast(message, { ...options, variant: 'error' });
 toast.success = (message, options = {}) => toast(message, { ...options, variant: 'success' });
 
 /**
  * Dismiss a toast immediately by id (returned from toast()).
- * @param {number} id
+ * @param id - Toast id to remove.
  */
-export function dismissToast(id) {
+export function dismissToast(id: number): void {
   listeners.forEach(fn => fn({ type: 'remove', id }));
 }
 
@@ -42,10 +75,10 @@ export function dismissToast(id) {
  * a stack of toasts in the bottom-right corner.
  */
 export function Toaster() {
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState<ToastItem[]>([]);
 
   useEffect(() => {
-    const fn = (event) => {
+    const fn: ToastListener = (event) => {
       if (event.type === 'add') {
         setItems(xs => [...xs, event.item]);
       } else {

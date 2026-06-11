@@ -1,9 +1,56 @@
-import React from 'react';
-import TranscriptView from './TranscriptView.jsx';
+import type { Ref } from 'react';
+import TranscriptView from './TranscriptView';
+import type { NoteHighlightRange } from './TranscriptView';
+import type { Chapter, Guide, TranscriptParagraph } from '../utils/playerUtils';
+
+/** Which info-panel tab is active. */
+export type PanelTab = 'summary' | 'chapters' | 'transcript' | 'notes';
 
 const TAB_CLS =
   "font-['Bricolage_Grotesque',system-ui,sans-serif] text-[0.92rem] font-bold tracking-[-0.01em] text-muted-foreground bg-transparent border-none py-1.5 px-3.5 rounded-full cursor-pointer transition-colors hover:text-foreground data-[active]:bg-muted data-[active]:text-foreground";
 
+/** Props for {@link PlayerInfoPanel}. */
+export interface PlayerInfoPanelProps {
+  /** Active tab. */
+  panel: PanelTab;
+  /** Set the active tab. */
+  setPanel: (panel: PanelTab) => void;
+  /** Chapter list. */
+  chapters: Chapter[];
+  /** Parsed transcript paragraphs (null when unavailable). */
+  transcriptParas: TranscriptParagraph[] | null;
+  /** Current guide (null while loading). */
+  guide: Guide | null;
+  /** Notes textarea contents. */
+  notes: string;
+  /** Update notes contents. */
+  updateNotes: (value: string) => void;
+  /** Index of the active chapter. */
+  activeIdx: number;
+  /** Jump playback to a chapter. */
+  jumpToChapter: (chapter: Chapter, index: number) => void;
+  /** Active word index for transcript highlighting. */
+  activeWord: number;
+  /** Seek to a word's time. */
+  onWordClick: (wordIdx: number) => void;
+  /** Ref attached to the active word span. */
+  activeWordRef?: Ref<HTMLSpanElement>;
+  /** Ref attached to the transcript scroll container. */
+  transcriptScrollRef?: Ref<HTMLDivElement>;
+  /** Format seconds as `m:ss`. */
+  fmt: (sec: number | undefined | null) => string;
+  /** Called when the user finishes a drag-selection in the transcript. */
+  onTextSelected: (text: string, startIdx: number, endIdx: number) => void;
+  /** Word range to re-highlight as a saved note. */
+  highlightedNoteRange?: NoteHighlightRange | null;
+}
+
+/**
+ * Tabbed info panel below the player: Summary, Chapters, Transcript, and Notes.
+ *
+ * @component
+ * @returns The tabbed info panel.
+ */
 export default function PlayerInfoPanel({
   panel,
   setPanel,
@@ -21,17 +68,17 @@ export default function PlayerInfoPanel({
   fmt,
   onTextSelected,
   highlightedNoteRange,
-}) {
+}: PlayerInfoPanelProps) {
   return (
     <>
       <div className="font-['Bricolage_Grotesque',system-ui,sans-serif] text-[1.1rem] font-bold tracking-[-0.02em] text-foreground py-2 pb-3.5 flex items-center justify-between gap-3 border-b border-border mb-1.5">
         <div className="inline-flex gap-1 bg-card rounded-full p-[3px]" role="tablist" aria-label="Panel">
-          {[
+          {([
             { key: 'summary',    label: 'Summary',    show: true },
             { key: 'chapters',   label: 'Chapters',   show: true },
             { key: 'transcript', label: 'Transcript', show: !!guide?.transcript },
             { key: 'notes',      label: 'Notes',      show: true },
-          ].filter(t => t.show).map(t => (
+          ] as { key: PanelTab; label: string; show: boolean }[]).filter(t => t.show).map(t => (
             <button
               key={t.key}
               role="tab"

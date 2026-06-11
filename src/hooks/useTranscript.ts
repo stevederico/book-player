@@ -7,13 +7,51 @@ import {
   wordIndexAtTime,
   buildCaptionChunks,
   chunkIndexAtWord,
-} from '../utils/playerUtils.js';
+} from '../utils/playerUtils';
+import type {
+  Guide,
+  TranscriptParagraph,
+  TimingWord,
+  Anchor,
+  CaptionChunk,
+} from '../utils/playerUtils';
+
+/** Derived transcript/timing data returned by {@link useTranscript}. */
+export interface UseTranscriptResult {
+  /** Parsed transcript paragraphs, or null when unavailable. */
+  transcriptParas: TranscriptParagraph[] | null;
+  /** Raw backend timing words, or null. */
+  timingWords: TimingWord[] | null;
+  /** Total transcript word count. */
+  totalWords: number;
+  /** Word/time anchors for interpolation, or null. */
+  anchors: Anchor[] | null;
+  /** Per-word start times, or null. */
+  wordStartTimes: number[] | null;
+  /** Caption chunks, or null. */
+  captionChunks: CaptionChunk[] | null;
+  /** Currently active word index (-1 when none). */
+  activeWord: number;
+  /** Currently active caption chunk, or null. */
+  activeCaption: CaptionChunk | null;
+}
 
 /**
  * Custom hook that handles all transcript parsing, timing alignment,
  * chapter anchoring, caption chunking, and active word/caption calculation.
+ *
+ * @param guide - The loaded guide (or null while loading).
+ * @param duration - Audio duration in seconds.
+ * @param current - Current playhead time in seconds.
+ * @param captionsOn - Whether captions should be computed.
+ * @returns Derived transcript and timing data.
  */
-export function useTranscript(guide, duration, current, captionsOn = true) {
+export function useTranscript(
+  guide: Guide | null,
+  duration: number,
+  current: number,
+  captionsOn = true
+): UseTranscriptResult {
   const transcriptParas = useMemo(
     () => (typeof guide?.transcript === 'string' && guide.transcript.length)
       ? parseTranscript(guide.transcript)
@@ -21,7 +59,7 @@ export function useTranscript(guide, duration, current, captionsOn = true) {
     [guide?.transcript]
   );
 
-  const timingWords = useMemo(() => {
+  const timingWords = useMemo<TimingWord[] | null>(() => {
     const t = guide?.timing;
     if (!t) return null;
     if (Array.isArray(t)) return t;

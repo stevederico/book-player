@@ -1,5 +1,6 @@
 // ==== IMPORTS ====
 import { Hono } from 'hono'
+import type { Context, Next } from 'hono'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
@@ -9,7 +10,7 @@ import Stripe from "stripe";
 import { compare as legacyBcryptCompare } from "./vendor/legacy-bcrypt.js";
 import crypto from "crypto";
 
-import { databaseManager } from "./adapters/manager.js";
+import { databaseManager } from "./adapters/manager.ts";
 import { synthesize } from "./tts/kokoro.js";
 import { generateChapters } from "./tts/chapters.js";
 import { analyzeTranscript, attachChapterTimes } from "./tts/analyze.js";
@@ -20,6 +21,10 @@ import { fileURLToPath } from 'node:url';
 import { readFile, mkdir, stat, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { writeFile, mkdir as mkdirP } from 'node:fs/promises';
 import { promisify } from 'node:util';
+import type { BackendConfig, BoundDatabase, CsrfTokenEntry, DatabaseConfig, JwtPayload, Logger, Subscription, UserSetFields, Guide, GuideInput, GuideChapter, GuideTiming } from './types.ts';
+
+/** Hono context environment: authMiddleware sets userID for downstream middleware/handlers. */
+type AppEnv = { Variables: { userID: string } };
 
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_AUDIO_BYTES = 200 * 1024 * 1024; // 200 MB
@@ -33,7 +38,7 @@ const MAX_AUDIO_BYTES = 200 * 1024 * 1024; // 200 MB
  * @param {string} title - Free-form title text
  * @returns {string|null} Kebab-case slug, or null
  */
-function slugify(title) {
+function slugify(title: string): string | null {
   if (typeof title !== 'string') return null;
   const s = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return s.length ? s : null;
@@ -44,7 +49,7 @@ const port = parseInt(process.env.PORT || "8000");
 
 // ==== STRUCTURED LOGGING ====
 // Defined early so all code can use it (no external dependencies)
-const logger = {
+const logger: Logger = {
   error: (message, meta = {}) => {
     const logEntry = {
       level: 'ERROR',
@@ -88,7 +93,7 @@ const logger = {
 };
 
 // ==== CSRF PROTECTION ====
-const csrfTokenStore = new Map(); // userID -> { token, timestamp }
+const csrfTokenStore = new Map<string, CsrfTokenEntry>(); // userID -> { token, timestamp }
 const CSRF_TOKEN_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
 const CSRF_MAX_ENTRIES = 50000; // LRU eviction threshold
 
@@ -98,12 +103,11 @@ const CSRF_MAX_ENTRIES = 50000; // LRU eviction threshold
  * Prevents memory leaks in CSRF store by removing oldest entries based on
  * timestamp when store exceeds maxEntries threshold.
  *
- * @param {Map} store - Map to evict entries from
- * @param {number} maxEntries - Maximum entries before eviction
- * @param {Function} getTimestamp - Function to extract timestamp from value
- * @returns {void}
+ * @param store - Map to evict entries from
+ * @param maxEntries - Maximum entries before eviction
+ * @param getTimestamp - Function to extract timestamp from value
  */
-function evictOldestEntries(store, maxEntries, getTimestamp) {
+function evictOldestEntries<K, V>(store: Map<K, V>, maxEntries: number, getTimestamp: (value: V) => number): void {
   if (store.size <= maxEntries) return;
 
   // Convert to array and sort by timestamp
@@ -123,9 +127,9 @@ function evictOldestEntries(store, maxEntries, getTimestamp) {
  *
  * Uses crypto.randomBytes to generate 64-character hex token.
  *
- * @returns {string} Hex-encoded CSRF token
+ * @returns Hex-encoded CSRF token
  */
-function generateCSRFToken() {
+function generateCSRFToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
@@ -138,11 +142,11 @@ function generateCSRFToken() {
  * Auto-regenerates token if missing (e.g., server restart) for authenticated users.
  *
  * @async
- * @param {Context} c - Hono context
- * @param {Function} next - Next middleware function
- * @returns {Promise<Response|void>} 403 error or continues to next middleware
+ * @param c - Hono context
+ * @param next - Next middleware function
+ * @returns 403 error or continues to next middleware
  */
-async function csrfProtection(c, next) {
+async function csrfProtection(c: Context<AppEnv>, next: Next) {
   if (c.req.method === 'GET' || c.req.path === '/api/signup' || c.req.path === '/api/signin') {
     return next();
   }
@@ -226,7 +230,7 @@ setInterval(() => {
 }, 60 * 60 * 1000); // Run every hour
 
 // ==== ACCOUNT LOCKOUT ====
-const loginAttemptStore = new Map(); // email -> { attempts, lockedUntil }
+const loginAttemptStore = new Map<string, { attempts: number; lockedUntil: number | null }>(); // email -> { attempts, lockedUntil }
 const LOCKOUT_THRESHOLD = 5; // Lock after 5 failed attempts
 const LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
 const LOCKOUT_MAX_ENTRIES = 50000; // LRU eviction threshold
@@ -234,10 +238,10 @@ const LOCKOUT_MAX_ENTRIES = 50000; // LRU eviction threshold
 /**
  * Check if account is locked due to failed login attempts
  *
- * @param {string} email - Email address to check
- * @returns {{locked: boolean, remainingTime: number}} Lock status and remaining time in seconds
+ * @param email - Email address to check
+ * @returns Lock status and remaining time in seconds
  */
-function isAccountLocked(email) {
+function isAccountLocked(email: string): { locked: boolean; remainingTime: number } {
   const record = loginAttemptStore.get(email);
   if (!record) return { locked: false, remainingTime: 0 };
 
@@ -262,10 +266,9 @@ function isAccountLocked(email) {
  *
  * Increments attempt counter. Locks account after LOCKOUT_THRESHOLD failures.
  *
- * @param {string} email - Email address that failed login
- * @returns {void}
+ * @param email - Email address that failed login
  */
-function recordFailedLogin(email) {
+function recordFailedLogin(email: string): void {
   const now = Date.now();
   let record = loginAttemptStore.get(email);
 
@@ -285,10 +288,9 @@ function recordFailedLogin(email) {
 /**
  * Clear failed login attempts on successful login
  *
- * @param {string} email - Email address to clear
- * @returns {void}
+ * @param email - Email address to clear
  */
-function clearFailedLogins(email) {
+function clearFailedLogins(email: string): void {
   loginAttemptStore.delete(email);
 }
 
@@ -328,13 +330,13 @@ if (!isProd()) {
  * Replaces ${VAR_NAME} patterns with process.env values. Logs warning
  * and preserves placeholder if environment variable is undefined.
  *
- * @param {string} str - String with ${VAR_NAME} placeholders
- * @returns {string} String with placeholders replaced
+ * @param str - String with ${VAR_NAME} placeholders
+ * @returns String with placeholders replaced
  */
-function resolveEnvironmentVariables(str) {
+function resolveEnvironmentVariables(str: string): string {
   if (typeof str !== 'string') return str;
 
-  return str.replace(/\$\{([^}]+)\}/g, (match, varName) => {
+  return str.replace(/\$\{([^}]+)\}/g, (match: string, varName: string) => {
     const envValue = process.env[varName];
     if (envValue === undefined) {
       logger.warn('Environment variable not defined, using placeholder', { varName, placeholder: match });
@@ -345,13 +347,13 @@ function resolveEnvironmentVariables(str) {
 }
 
 // Load and process configuration
-let config;
+let config: BackendConfig;
 try {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
   const configPath = resolve(__dirname, './config.json');
   const configData = await promisify(readFile)(configPath);
-  const rawConfig = JSON.parse(configData.toString());
+  const rawConfig = JSON.parse(configData.toString()) as { staticDir?: string; database: DatabaseConfig };
 
   // Resolve environment variables in configuration
   config = {
@@ -362,7 +364,7 @@ try {
     }
   };
 } catch (err) {
-  logger.error('Failed to load config, using defaults', { error: err.message });
+  logger.error('Failed to load config, using defaults', { error: (err as Error).message });
   config = {
     staticDir: '../dist',
     database: {
@@ -383,9 +385,9 @@ const JWT_SECRET = process.env.JWT_SECRET;
  * unresolved ${VAR} references in database config. Logs warnings for
  * missing variables but does not exit the process.
  *
- * @returns {boolean} True if all required variables are present
+ * @returns True if all required variables are present
  */
-function validateEnvironmentVariables() {
+function validateEnvironmentVariables(): boolean {
   const missing = [];
 
   if (!STRIPE_KEY) missing.push('STRIPE_KEY');
@@ -432,7 +434,7 @@ const dbConfig = config.database;
 
 // ==== SERVICES SETUP ====
 // Stripe setup (only if key is available)
-let stripe = null;
+let stripe: Stripe | null = null;
 if (STRIPE_KEY) {
   stripe = new Stripe(STRIPE_KEY);
 } else {
@@ -448,17 +450,17 @@ const currentDbConfig = dbConfig;
  * Provides shorthand methods for database operations without repeating
  * dbType, db, connectionString on every call.
  *
- * @type {Object}
  * @example
  * // Instead of:
  * await db.findUser( { email });
  * // Use:
  * await db.findUser({ email });
  */
-const db = {
+const db: BoundDatabase = {
   findUser: (query, projection) => databaseManager.findUser(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, query, projection),
   insertUser: (userData) => databaseManager.insertUser(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, userData),
   updateUser: (query, update) => databaseManager.updateUser(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, query, update),
+  deleteUser: (query) => databaseManager.deleteUser(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, query),
   findAuth: (query) => databaseManager.findAuth(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, query),
   insertAuth: (authData) => databaseManager.insertAuth(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, authData),
   updateAuth: (query, update) => databaseManager.updateAuth(currentDbConfig.dbType, currentDbConfig.db, currentDbConfig.connectionString, query, update),
@@ -472,7 +474,7 @@ const db = {
 };
 
 // ==== HONO SETUP ====
-const app = new Hono();
+const app = new Hono<AppEnv>();
 
 // Get __dirname for static file serving
 const __filename = fileURLToPath(import.meta.url);
@@ -538,7 +540,7 @@ app.use('*', async (c, next) => {
 
 const tokenExpirationDays = 30;
 
-const scryptAsync = promisify(crypto.scrypt);
+const scryptAsync = promisify(crypto.scrypt) as (password: string, salt: Buffer, keylen: number) => Promise<Buffer>;
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_SALTLEN = 16;
 
@@ -550,10 +552,10 @@ const SCRYPT_SALTLEN = 16;
  * in verifyPassword but never created.
  *
  * @async
- * @param {string} password - Plain text password to hash
- * @returns {Promise<string>} Scrypt hash string
+ * @param password - Plain text password to hash
+ * @returns Scrypt hash string
  */
-async function hashPassword(password) {
+async function hashPassword(password: string): Promise<string> {
   const salt = crypto.randomBytes(SCRYPT_SALTLEN);
   const key = await scryptAsync(password, salt, SCRYPT_KEYLEN);
   return `scrypt$${salt.toString('base64url')}$${key.toString('base64url')}`;
@@ -566,11 +568,11 @@ async function hashPassword(password) {
  * `$2` → bcryptjs (legacy users predating the scrypt migration).
  *
  * @async
- * @param {string} password - Plain text password to verify
- * @param {string} stored - Stored hash (scrypt or bcrypt format)
- * @returns {Promise<boolean>} True if password matches stored hash
+ * @param password - Plain text password to verify
+ * @param stored - Stored hash (scrypt or bcrypt format)
+ * @returns True if password matches stored hash
  */
-async function verifyPassword(password, stored) {
+async function verifyPassword(password: string, stored: string): Promise<boolean> {
   if (typeof stored !== 'string') return false;
   if (stored.startsWith('scrypt$')) {
     const [, saltB64, keyB64] = stored.split('$');
@@ -588,19 +590,19 @@ async function verifyPassword(password, stored) {
 /**
  * Whether a stored hash should be migrated to scrypt on next successful login
  *
- * @param {string} stored - Stored hash
- * @returns {boolean} True if the hash is in legacy bcrypt format
+ * @param stored - Stored hash
+ * @returns True if the hash is in legacy bcrypt format
  */
-function needsRehash(stored) {
+function needsRehash(stored: string): boolean {
   return typeof stored === 'string' && !stored.startsWith('scrypt$');
 }
 
 /**
  * Calculate JWT expiration timestamp
  *
- * @returns {number} Unix timestamp 30 days in the future
+ * @returns Unix timestamp 30 days in the future
  */
-function tokenExpireTimestamp(){
+function tokenExpireTimestamp(): number {
   return Math.floor(Date.now() / 1000) + tokenExpirationDays * 24 * 60 * 60; // 30 days from now
 }
 
@@ -611,11 +613,11 @@ function tokenExpireTimestamp(){
  * {"alg":"HS256","typ":"JWT"} followed by the payload, joined and signed
  * over `base64url(header).base64url(payload)`.
  *
- * @param {Object} payload - Payload to encode (must include exp)
- * @param {string} secret - HMAC signing secret
- * @returns {string} Compact JWT string
+ * @param payload - Payload to encode (must include exp)
+ * @param secret - HMAC signing secret
+ * @returns Compact JWT string
  */
-function jwtSign(payload, secret) {
+function jwtSign(payload: JwtPayload, secret: string): string {
   const head = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const sig = crypto.createHmac('sha256', secret).update(`${head}.${body}`).digest('base64url');
@@ -629,12 +631,12 @@ function jwtSign(payload, secret) {
  * Throws an Error with name === 'TokenExpiredError' for expired tokens, or a
  * generic Error for malformed/invalid signatures.
  *
- * @param {string} token - JWT string to verify
- * @param {string} secret - HMAC verification secret
- * @returns {Object} Decoded payload
- * @throws {Error} If token is malformed, signature invalid, or expired
+ * @param token - JWT string to verify
+ * @param secret - HMAC verification secret
+ * @returns Decoded payload
+ * @throws If token is malformed, signature invalid, or expired
  */
-function jwtVerify(token, secret) {
+function jwtVerify(token: string, secret: string): JwtPayload {
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('Invalid token');
   const [head, body, sig] = parts;
@@ -645,7 +647,7 @@ function jwtVerify(token, secret) {
   if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
     throw new Error('Invalid signature');
   }
-  const payload = JSON.parse(Buffer.from(body, 'base64url').toString());
+  const payload = JSON.parse(Buffer.from(body, 'base64url').toString()) as JwtPayload;
   if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
     const err = new Error('Token expired');
     err.name = 'TokenExpiredError';
@@ -661,11 +663,11 @@ function jwtVerify(token, secret) {
  * environment variable.
  *
  * @async
- * @param {string} userID - User ID to encode in token
- * @returns {Promise<string>} Signed JWT token
- * @throws {Error} If JWT_SECRET not configured or signing fails
+ * @param userID - User ID to encode in token
+ * @returns Signed JWT token
+ * @throws If JWT_SECRET not configured or signing fails
  */
-async function generateToken(userID) {
+async function generateToken(userID: string): Promise<string> {
   try {
     if (!JWT_SECRET) {
       throw new Error("JWT_SECRET not configured - authentication disabled");
@@ -676,7 +678,7 @@ async function generateToken(userID) {
 
     return jwtSign(payload, JWT_SECRET);
   } catch (error) {
-    logger.error('Token generation error', { error: error.message });
+    logger.error('Token generation error', { error: (error as Error).message });
     throw error;
   }
 }
@@ -690,11 +692,11 @@ async function generateToken(userID) {
  * JWT_SECRET not configured.
  *
  * @async
- * @param {Context} c - Hono context
- * @param {Function} next - Next middleware function
- * @returns {Promise<Response|void>} 401/503 error or continues to next middleware
+ * @param c - Hono context
+ * @param next - Next middleware function
+ * @returns 401/503 error or continues to next middleware
  */
-async function authMiddleware(c, next) {
+async function authMiddleware(c: Context<AppEnv>, next: Next) {
   if (!JWT_SECRET) {
     return c.json({ error: "Authentication service unavailable" }, 503);
   }
@@ -712,11 +714,11 @@ async function authMiddleware(c, next) {
     c.set('userID', normalizedUserID);
     await next();
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
+    if ((error as Error).name === 'TokenExpiredError') {
       logger.debug('Token expired');
       return c.json({ error: "Token expired" }, 401);
     }
-    logger.error('Token verification error', { error: error.message });
+    logger.error('Token verification error', { error: (error as Error).message });
     return c.json({ error: "Invalid token" }, 401);
   }
 }
@@ -726,9 +728,9 @@ async function authMiddleware(c, next) {
  *
  * Uses crypto.randomUUID() for cryptographically secure unique identifiers.
  *
- * @returns {string} UUID string
+ * @returns UUID string
  */
-function generateUUID() {
+function generateUUID(): string {
   return crypto.randomUUID();
 }
 
@@ -738,12 +740,12 @@ function generateUUID() {
  * Replaces &, <, >, ", ', / with HTML entities. Returns original value
  * if not a string.
  *
- * @param {string} text - Text to escape
- * @returns {string} HTML-escaped text
+ * @param text - Text to escape
+ * @returns HTML-escaped text
  */
-const escapeHtml = (text) => {
+const escapeHtml = (text: string): string => {
   if (typeof text !== 'string') return text;
-  const map = {
+  const map: Record<string, string> = {
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
@@ -761,10 +763,10 @@ const escapeHtml = (text) => {
  * domain, and TLD. Max length 254 characters. Prevents consecutive dots
  * and leading/trailing hyphens.
  *
- * @param {string} email - Email address to validate
- * @returns {boolean} True if valid email format
+ * @param email - Email address to validate
+ * @returns True if valid email format
  */
-const validateEmail = (email) => {
+const validateEmail = (email: unknown): email is string => {
   if (!email || typeof email !== 'string') return false;
   if (email.length > 254) return false; // RFC 5321
 
@@ -781,10 +783,10 @@ const validateEmail = (email) => {
  *
  * Enforces 6-72 character range (bcrypt's maximum is 72 bytes).
  *
- * @param {string} password - Password to validate
- * @returns {boolean} True if valid password length
+ * @param password - Password to validate
+ * @returns True if valid password length
  */
-const validatePassword = (password) => {
+const validatePassword = (password: unknown): password is string => {
   if (!password || typeof password !== 'string') return false;
   if (password.length < 6 || password.length > 72) return false; // bcrypt limit
   return true;
@@ -795,10 +797,10 @@ const validatePassword = (password) => {
  *
  * Enforces 1-100 character range after trimming whitespace.
  *
- * @param {string} name - Name to validate
- * @returns {boolean} True if valid name
+ * @param name - Name to validate
+ * @returns True if valid name
  */
-const validateName = (name) => {
+const validateName = (name: unknown): name is string => {
   if (!name || typeof name !== 'string') return false;
   if (name.trim().length === 0 || name.length > 100) return false;
   return true;
@@ -810,13 +812,12 @@ const validateName = (name) => {
  * Creates CSRF token, stores it in memory, and sets both JWT (HttpOnly) and
  * CSRF (readable) cookies. Consolidates duplicate cookie logic from signup/signin.
  *
- * @async
- * @param {Context} c - Hono context
- * @param {string} userID - User ID to associate with session
- * @param {string} jwtToken - Pre-generated JWT token
- * @returns {string} Generated CSRF token
+ * @param c - Hono context
+ * @param userID - User ID to associate with session
+ * @param jwtToken - Pre-generated JWT token
+ * @returns Generated CSRF token
  */
-function setAuthCookies(c, userID, jwtToken) {
+function setAuthCookies(c: Context<AppEnv>, userID: string, jwtToken: string): string {
   const csrfToken = generateCSRFToken();
   csrfTokenStore.set(userID.toString(), { token: csrfToken, timestamp: Date.now() });
 
@@ -844,13 +845,35 @@ function setAuthCookies(c, userID, jwtToken) {
 // ==== STRIPE WEBHOOK (raw body needed) ====
 
 /**
+ * Subscription fields this server reads from Stripe webhook payloads and
+ * subscription retrievals. Pre-basil Stripe API versions expose
+ * current_period_end at the top level; basil (2025-03-31+) moved it onto each
+ * subscription item.
+ */
+type StripeSubscriptionLike = {
+  current_period_end?: number | null;
+  status: string;
+  items?: { data?: Array<{ current_period_end?: number | null }> };
+};
+
+/**
+ * Resolve a subscription's period end across Stripe API versions: top-level
+ * (pre-basil) first, then the first subscription item (basil). Returns null
+ * when absent so callers store a NULL expires instead of binding undefined
+ * (node:sqlite throws on undefined parameters).
+ */
+function getSubscriptionPeriodEnd(sub: StripeSubscriptionLike): number | null {
+  return sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? null;
+}
+
+/**
  * Resolve a Stripe customer ID to a normalized lowercase email.
  *
- * @param {string} stripeID - Stripe customer ID
- * @returns {Promise<string|null>} Normalized email, or null if missing
+ * @param stripeID - Stripe customer ID
+ * @returns Normalized email, or null if missing
  */
-async function resolveCustomerEmail(stripeID) {
-  const customer = await stripe.customers.retrieve(stripeID);
+async function resolveCustomerEmail(stripeID: string): Promise<string | null> {
+  const customer = await stripe!.customers.retrieve(stripeID) as Stripe.Customer;
   if (!customer?.email) {
     logger.warn('Webhook: Customer has no email', { stripeID });
     return null;
@@ -862,14 +885,17 @@ async function resolveCustomerEmail(stripeID) {
  * Build the canonical user.subscription patch from a Stripe customer ID
  * and a Stripe subscription object.
  *
- * @param {string} stripeID - Stripe customer ID
- * @param {object} stripeSub - Stripe subscription object
- * @returns {{stripeID: string, expires: number, status: string}}
+ * @param stripeID - Stripe customer ID
+ * @param stripeSub - Stripe subscription object
  */
-function buildSubscriptionPatch(stripeID, stripeSub) {
+function buildSubscriptionPatch(stripeID: string, stripeSub: Stripe.Subscription): Subscription {
+  const expires = getSubscriptionPeriodEnd(stripeSub as unknown as StripeSubscriptionLike);
+  if (expires === null) {
+    logger.error('Webhook: subscription has no current_period_end at top level or item level', { stripeID });
+  }
   return {
     stripeID,
-    expires: stripeSub.current_period_end,
+    expires,
     status: stripeSub.status
   };
 }
@@ -878,11 +904,11 @@ function buildSubscriptionPatch(stripeID, stripeSub) {
  * Apply a $set patch to the user identified by email. Returns false if no
  * matching user is found (silent no-op so Stripe will not retry).
  *
- * @param {string} email - Normalized email
- * @param {object} $set - MongoDB-style $set fields
- * @returns {Promise<boolean>} True if a user was patched
+ * @param email - Normalized email
+ * @param $set - MongoDB-style $set fields
+ * @returns True if a user was patched
  */
-async function applyUserPatch(email, $set) {
+async function applyUserPatch(email: string, $set: UserSetFields): Promise<boolean> {
   const user = await db.findUser({ email });
   if (!user) {
     logger.warn('Webhook: No user found for email', { email });
@@ -899,12 +925,12 @@ app.post("/api/payment", async (c) => {
   const rawBody = await c.req.arrayBuffer();
   const body = Buffer.from(rawBody);
 
-  let event;
+  let event: Stripe.Event;
   try {
-    event = await stripe.webhooks.constructEventAsync(body, signature, process.env.STRIPE_ENDPOINT_SECRET);
+    event = await stripe!.webhooks.constructEventAsync(body, signature!, process.env.STRIPE_ENDPOINT_SECRET!);
     logger.debug('Webhook event received', { type: event.type });
   } catch (e) {
-    logger.error('Webhook signature verification failed', { error: e.message });
+    logger.error('Webhook signature verification failed', { error: (e as Error).message });
     return c.body(null, 400);
   }
 
@@ -922,22 +948,27 @@ app.post("/api/payment", async (c) => {
     const eventObject = event.data.object;
 
     if (["customer.subscription.deleted", "customer.subscription.updated", "customer.subscription.created"].includes(event.type)) {
-      const { customer: stripeID, current_period_end, status } = eventObject;
+      const subLike = eventObject as unknown as { customer?: string } & StripeSubscriptionLike;
+      const { customer: stripeID, status } = subLike;
       if (!stripeID) {
         logger.error('Webhook missing customer ID', { type: event.type });
         return c.body(null, 400);
       }
       const email = await resolveCustomerEmail(stripeID);
       if (!email) return c.body(null, 400);
-      const ok = await applyUserPatch(email, { subscription: { stripeID, expires: current_period_end, status } });
+      const expires = getSubscriptionPeriodEnd(subLike);
+      if (expires === null) {
+        logger.error('Webhook: subscription event has no current_period_end', { type: event.type, eventId: event.id });
+      }
+      const ok = await applyUserPatch(email, { subscription: { stripeID, expires, status } });
       if (ok) logger.info('Subscription updated', { type: event.type, email, status });
     }
 
     if (event.type === "checkout.session.completed") {
-      const { customer: stripeID, customer_email, subscription: subscriptionId } = eventObject;
+      const { customer: stripeID, customer_email, subscription: subscriptionId } = eventObject as { customer?: string; customer_email?: string | null; subscription?: string };
       if (subscriptionId && stripeID) {
         const [subscription, email] = await Promise.all([
-          stripe.subscriptions.retrieve(subscriptionId),
+          stripe!.subscriptions.retrieve(subscriptionId),
           customer_email ? Promise.resolve(customer_email.toLowerCase()) : resolveCustomerEmail(stripeID)
         ]);
         if (email) {
@@ -948,10 +979,17 @@ app.post("/api/payment", async (c) => {
     }
 
     if (event.type === "invoice.paid") {
-      const { customer: stripeID, subscription: subscriptionId } = eventObject;
+      const invoice = eventObject as {
+        customer?: string;
+        subscription?: string;
+        parent?: { subscription_details?: { subscription?: string } };
+      };
+      const stripeID = invoice.customer;
+      // Basil (2025-03-31+) moved the invoice's subscription id under parent.subscription_details.
+      const subscriptionId = invoice.subscription ?? invoice.parent?.subscription_details?.subscription;
       if (subscriptionId && stripeID) {
         const [subscription, email] = await Promise.all([
-          stripe.subscriptions.retrieve(subscriptionId),
+          stripe!.subscriptions.retrieve(subscriptionId),
           resolveCustomerEmail(stripeID)
         ]);
         if (email) {
@@ -962,7 +1000,7 @@ app.post("/api/payment", async (c) => {
     }
 
     if (event.type === "invoice.payment_failed") {
-      const { customer: stripeID } = eventObject;
+      const { customer: stripeID } = eventObject as { customer?: string };
       if (stripeID) {
         const email = await resolveCustomerEmail(stripeID);
         if (email) {
@@ -977,7 +1015,7 @@ app.post("/api/payment", async (c) => {
 
     return c.body(null, 200);
   } catch (e) {
-    logger.error('Webhook processing error', { error: e.message });
+    logger.error('Webhook processing error', { error: (e as Error).message });
     return c.body(null, 500);
   }
 });
@@ -987,22 +1025,22 @@ app.get("/api/health", (c) => c.json({ status: "ok", timestamp: Date.now() }));
 
 // Simple server-side page fetch + extraction for the create flow
 // Minimal HTML entity decoder — covers the common named entities and all numeric refs
-const HTML_ENTITIES = {
+const HTML_ENTITIES: Record<string, string> = {
   amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
   ndash: '–', mdash: '—', hellip: '…', lsquo: '‘', rsquo: '’',
   ldquo: '“', rdquo: '”', laquo: '«', raquo: '»', copy: '©',
   reg: '®', trade: '™', deg: '°', middot: '·', bull: '•',
 };
-function decodeHtmlEntities(s) {
+function decodeHtmlEntities(s: string): string {
   if (!s) return '';
   return s
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(parseInt(n, 10)))
-    .replace(/&([a-z][a-z0-9]*);/gi, (m, name) => HTML_ENTITIES[name.toLowerCase()] ?? m);
+    .replace(/&#x([0-9a-f]+);/gi, (_: string, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_: string, n: string) => String.fromCodePoint(parseInt(n, 10)))
+    .replace(/&([a-z][a-z0-9]*);/gi, (m: string, name: string) => HTML_ENTITIES[name.toLowerCase()] ?? m);
 }
 
 // Convert HTML fragment to text while preserving paragraph breaks
-function htmlFragmentToText(html) {
+function htmlFragmentToText(html: string): string {
   return html
     .replace(/<\/(?:p|div|section|article|h[1-6]|li|blockquote|tr)>/gi, '\n\n')
     .replace(/<br\s*\/?\s*>/gi, '\n')
@@ -1047,7 +1085,7 @@ app.post("/api/fetch-url", async (c) => {
       });
     } catch (err) {
       clearTimeout(timer);
-      if (err.name === 'AbortError') {
+      if ((err as Error).name === 'AbortError') {
         return c.json({ error: 'Upstream fetch timed out after 15s' }, 504);
       }
       throw err;
@@ -1135,7 +1173,7 @@ app.post("/api/fetch-url", async (c) => {
     });
 
   } catch (err) {
-    logger.error('fetch-url error', { error: err.message });
+    logger.error('fetch-url error', { error: (err as Error).message });
     return c.json({ error: 'Failed to fetch or parse the page' }, 500);
   }
 });
@@ -1150,7 +1188,7 @@ app.post("/api/fetch-url", async (c) => {
  * @param {string} bodyText - Plain-text transcript for fallback scan
  * @returns {string|null}
  */
-function extractDate(cleanedHtml, bodyText) {
+function extractDate(cleanedHtml: string, bodyText: string): string | null {
   const metaPatterns = [
     /<meta[^>]+property=["']article:published_time["'][^>]+content=["']([^"']+)["']/i,
     /<meta[^>]+name=["']date["'][^>]+content=["']([^"']+)["']/i,
@@ -1176,7 +1214,7 @@ function extractDate(cleanedHtml, bodyText) {
  * @param {URL} baseUrl - Page URL for relative-href resolution
  * @returns {string|null}
  */
-function extractOgImage(cleanedHtml, baseUrl) {
+function extractOgImage(cleanedHtml: string, baseUrl: URL): string | null {
   const patterns = [
     /<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i,
     /<meta[^>]+name=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i,
@@ -1197,7 +1235,7 @@ app.get("/api/guides", async (c) => {
     const guides = await db.listGuides({ visibility: 'public' });
     return c.json(guides);
   } catch (e) {
-    logger.error('List guides error', { error: e.message });
+    logger.error('List guides error', { error: (e as Error).message });
     return c.json({ error: "Failed to load guides" }, 500);
   }
 });
@@ -1212,7 +1250,7 @@ app.get("/api/guides/:slug", async (c) => {
     }
     return c.json(guide);
   } catch (e) {
-    logger.error('Get guide error', { error: e.message, slug: c.req.param('slug') });
+    logger.error('Get guide error', { error: (e as Error).message, slug: c.req.param('slug') });
     return c.json({ error: "Failed to load guide" }, 500);
   }
 });
@@ -1234,9 +1272,12 @@ app.delete("/api/guides/:slug", async (c) => {
       params: [slug],
     });
 
-    return c.json({ ok: true, slug, changes: result?.data?.affectedRows ?? 1 });
+    const changes = result.success
+      ? ((result.data as { affectedRows?: number })?.affectedRows ?? 1)
+      : 1;
+    return c.json({ ok: true, slug, changes });
   } catch (e) {
-    logger.error('Delete guide error', { error: e.message, slug: c.req.param('slug') });
+    logger.error('Delete guide error', { error: (e as Error).message, slug: c.req.param('slug') });
     return c.json({ error: "Failed to delete guide" }, 500);
   }
 });
@@ -1253,7 +1294,7 @@ app.post("/api/tts", async (c) => {
     if (text.length > 20000) return c.json({ error: "Text too long (max 20,000 chars)" }, 413);
 
     const voice = typeof body.voice === 'string' ? body.voice : 'af_heart';
-    const speed = Number.isFinite(body.speed) ? Math.max(0.5, Math.min(2, body.speed)) : 1;
+    const speed = Number.isFinite(body.speed) ? Math.max(0.5, Math.min(2, body.speed as number)) : 1;
 
     const t0 = Date.now();
     const { audioWav, words, sampleRate, durationSec } = await synthesize(text, { voice, speed });
@@ -1267,7 +1308,7 @@ app.post("/api/tts", async (c) => {
       words,
     });
   } catch (e) {
-    logger.error('TTS error', { error: e.message });
+    logger.error('TTS error', { error: (e as Error).message });
     return c.json({ error: "Failed to synthesize" }, 500);
   }
 });
@@ -1306,8 +1347,8 @@ app.post("/api/guides/:slug/auto-chapters", async (c) => {
     logger.info('Auto-chapters generated', { slug, count: chapters.length, ms: Date.now() - t0 });
     return c.json({ chapters });
   } catch (e) {
-    logger.error('Auto-chapters error', { error: e.message, slug: c.req.param('slug') });
-    return c.json({ error: e.message || "Failed to generate chapters" }, 500);
+    logger.error('Auto-chapters error', { error: (e as Error).message, slug: c.req.param('slug') });
+    return c.json({ error: (e as Error).message || "Failed to generate chapters" }, 500);
   }
 });
 
@@ -1320,14 +1361,15 @@ app.post("/api/guides/:slug/analyze", async (c) => {
     if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
     await runAnalyzeStep(slug);
     const fresh = await db.getGuide(slug);
+    if (!fresh) return c.json({ error: "Guide not found" }, 404);
     return c.json({
       author: fresh.author,
       summary: fresh.summary,
-      chapters: (fresh.chapters || []).map(c => ({ title: c.title, quote: c.quote, caption: c.caption })),
+      chapters: (fresh.chapters || []).map(ch => ({ title: ch.title, quote: ch.quote, caption: ch.caption })),
     });
   } catch (e) {
-    logger.error('Analyze endpoint error', { error: e.message, slug: c.req.param('slug') });
-    return c.json({ error: e.message || "Failed to analyze" }, 500);
+    logger.error('Analyze endpoint error', { error: (e as Error).message, slug: c.req.param('slug') });
+    return c.json({ error: (e as Error).message || "Failed to analyze" }, 500);
   }
 });
 
@@ -1338,10 +1380,11 @@ app.post("/api/guides/:slug/chapter-timing", async (c) => {
     if (!SLUG_REGEX.test(slug)) return c.json({ error: "Invalid slug" }, 400);
     await runChapterTimingStep(slug);
     const fresh = await db.getGuide(slug);
+    if (!fresh) return c.json({ error: "Guide not found" }, 404);
     return c.json({ chapters: fresh.chapters });
   } catch (e) {
-    logger.error('Chapter-timing endpoint error', { error: e.message, slug: c.req.param('slug') });
-    return c.json({ error: e.message || "Failed to time chapters" }, 500);
+    logger.error('Chapter-timing endpoint error', { error: (e as Error).message, slug: c.req.param('slug') });
+    return c.json({ error: (e as Error).message || "Failed to time chapters" }, 500);
   }
 });
 
@@ -1360,11 +1403,12 @@ app.post("/api/guides/:slug/summary", async (c) => {
     // Delegate to the combined analyze call so we only ever make one Grok request.
     await runAnalyzeStep(slug);
     const fresh = await db.getGuide(slug);
+    if (!fresh) return c.json({ error: "Guide not found" }, 404);
     logger.info('Summary generated', { slug, chars: fresh.summary?.length || 0, ms: Date.now() - t0 });
     return c.json({ summary: fresh.summary });
   } catch (e) {
-    logger.error('Summary error', { error: e.message, slug: c.req.param('slug') });
-    return c.json({ error: e.message || "Failed to generate summary" }, 500);
+    logger.error('Summary error', { error: (e as Error).message, slug: c.req.param('slug') });
+    return c.json({ error: (e as Error).message || "Failed to generate summary" }, 500);
   }
 });
 
@@ -1393,13 +1437,13 @@ app.post("/api/guides/:slug/tts", async (c) => {
 
     // Fire-and-forget; do not await.
     runTtsJob(slug, guide).catch(err => {
-      logger.error('TTS job crashed', { slug, error: err.message });
+      logger.error('TTS job crashed', { slug, error: (err as Error).message });
     });
 
     return c.json({ jobId: 'tts', status: 'running' }, 202);
   } catch (e) {
-    logger.error('TTS kickoff error', { error: e.message, slug: c.req.param('slug') });
-    return c.json({ error: e.message || "Failed to kick off TTS" }, 500);
+    logger.error('TTS kickoff error', { error: (e as Error).message, slug: c.req.param('slug') });
+    return c.json({ error: (e as Error).message || "Failed to kick off TTS" }, 500);
   }
 });
 
@@ -1411,7 +1455,7 @@ app.post("/api/guides/:slug/tts", async (c) => {
  * @param {Object} guide - The guide payload at job kickoff
  * @returns {Promise<void>}
  */
-async function runTtsJob(slug, guide) {
+async function runTtsJob(slug: string, guide: Guide): Promise<void> {
   const t0 = Date.now();
   try {
     const audioDir = resolve(__dirname, './public/audio');
@@ -1419,7 +1463,7 @@ async function runTtsJob(slug, guide) {
     const outPath = resolve(audioDir, `${slug}.mp3`);
 
     const { audioMp3, words, totalDuration, transcript: normalizedTranscript } = await synthesizeGuide({
-      transcript: guide.transcript,
+      transcript: guide.transcript ?? '',
       onProgress: ({ chunksDone, chunksTotal }) => {
         // Best-effort progress write — errors here shouldn't kill the job.
         db.updateGuideJob(slug, 'tts', { chunksDone, chunksTotal }).catch(() => {});
@@ -1432,6 +1476,7 @@ async function runTtsJob(slug, guide) {
     // same tokens (em/en dashes are split out) as the timing stream — otherwise
     // alignTimings falls back to the previous word's time for those rows.
     const fresh = await db.getGuide(slug);
+    if (!fresh) return;
     await db.upsertGuide({
       ...fresh,
       transcript: normalizedTranscript,
@@ -1447,10 +1492,10 @@ async function runTtsJob(slug, guide) {
     });
     logger.info('TTS job done', { slug, durationSec: totalDuration, words: words.length, ms: Date.now() - t0 });
   } catch (err) {
-    logger.error('TTS job failed', { slug, error: err.message });
+    logger.error('TTS job failed', { slug, error: (err as Error).message });
     await db.updateGuideJob(slug, 'tts', {
       status: 'failed',
-      error: err.message || 'Unknown error',
+      error: (err as Error).message || 'Unknown error',
       ms: Date.now() - t0,
       finishedAt: Date.now(),
     }).catch(() => {});
@@ -1481,7 +1526,7 @@ app.post("/api/guides/:slug/date", async (c) => {
       });
     } catch (err) {
       clearTimeout(timer);
-      if (err.name === 'AbortError') return c.json({ error: 'Upstream fetch timed out after 15s' }, 504);
+      if ((err as Error).name === 'AbortError') return c.json({ error: 'Upstream fetch timed out after 15s' }, 504);
       throw err;
     }
     clearTimeout(timer);
@@ -1499,8 +1544,8 @@ app.post("/api/guides/:slug/date", async (c) => {
     await db.upsertGuide({ ...guide, date });
     return c.json({ date });
   } catch (e) {
-    logger.error('Date re-scrape error', { error: e.message, slug: c.req.param('slug') });
-    return c.json({ error: e.message || "Failed to re-scrape date" }, 500);
+    logger.error('Date re-scrape error', { error: (e as Error).message, slug: c.req.param('slug') });
+    return c.json({ error: (e as Error).message || "Failed to re-scrape date" }, 500);
   }
 });
 
@@ -1528,12 +1573,13 @@ app.post("/api/guides/:slug/thumbnail", async (c) => {
     const thumbnail = `/images/${slug}/cover.${ext}`;
 
     const fresh = await db.getGuide(slug);
+    if (!fresh) return c.json({ error: "Guide not found" }, 404);
     await db.upsertGuide({ ...fresh, thumbnail });
     logger.info('Thumbnail generated', { slug, bytes: buffer.length, ms: Date.now() - t0 });
     return c.json({ thumbnail });
   } catch (e) {
-    logger.error('Thumbnail error', { error: e.message, slug: c.req.param('slug') });
-    return c.json({ error: e.message || "Failed to generate thumbnail" }, 500);
+    logger.error('Thumbnail error', { error: (e as Error).message, slug: c.req.param('slug') });
+    return c.json({ error: (e as Error).message || "Failed to generate thumbnail" }, 500);
   }
 });
 
@@ -1566,13 +1612,13 @@ app.post("/api/guides/:slug/chapter-images", async (c) => {
     });
 
     runChapterImagesJob(slug).catch(err => {
-      logger.error('chapter-images job crashed', { slug, error: err.message });
+      logger.error('chapter-images job crashed', { slug, error: (err as Error).message });
     });
 
     return c.json({ jobId: 'chapter-images', status: 'running' }, 202);
   } catch (e) {
-    logger.error('chapter-images kickoff error', { error: e.message, slug: c.req.param('slug') });
-    return c.json({ error: e.message || "Failed to kick off chapter-images" }, 500);
+    logger.error('chapter-images kickoff error', { error: (e as Error).message, slug: c.req.param('slug') });
+    return c.json({ error: (e as Error).message || "Failed to kick off chapter-images" }, 500);
   }
 });
 
@@ -1584,12 +1630,12 @@ app.post("/api/guides/:slug/chapter-images", async (c) => {
  * @param {string} slug
  * @returns {Promise<void>}
  */
-async function runChapterImagesJob(slug) {
+async function runChapterImagesJob(slug: string): Promise<void> {
   const t0 = Date.now();
   try {
     const guide = await db.getGuide(slug);
     if (!guide) throw new Error('Guide vanished');
-    const chapters = [...guide.chapters];
+    const chapters: GuideChapter[] = [...(guide.chapters ?? [])];
     const dir = resolve(__dirname, `./public/images/${slug}/generated`);
     await mkdirP(dir, { recursive: true });
 
@@ -1612,6 +1658,7 @@ async function runChapterImagesJob(slug) {
     await pLimit(CHAPTER_IMAGE_CONCURRENCY, tasks);
 
     const fresh = await db.getGuide(slug);
+    if (!fresh) return;
     await db.upsertGuide({ ...fresh, chapters });
     await db.updateGuideJob(slug, 'chapter-images', {
       status: 'done',
@@ -1621,10 +1668,10 @@ async function runChapterImagesJob(slug) {
     });
     logger.info('chapter-images done', { slug, count: todo.length, ms: Date.now() - t0 });
   } catch (err) {
-    logger.error('chapter-images failed', { slug, error: err.message });
+    logger.error('chapter-images failed', { slug, error: (err as Error).message });
     await db.updateGuideJob(slug, 'chapter-images', {
       status: 'failed',
-      error: err.message || 'Unknown error',
+      error: (err as Error).message || 'Unknown error',
       ms: Date.now() - t0,
       finishedAt: Date.now(),
     }).catch(() => {});
@@ -1659,13 +1706,13 @@ app.post("/api/guides/:slug/chapter-real-images", async (c) => {
     });
 
     runChapterRealImagesJob(slug).catch(err => {
-      logger.error('chapter-real-images job crashed', { slug, error: err.message });
+      logger.error('chapter-real-images job crashed', { slug, error: (err as Error).message });
     });
 
     return c.json({ jobId: 'chapter-real-images', status: 'running' }, 202);
   } catch (e) {
-    logger.error('chapter-real-images kickoff error', { error: e.message, slug: c.req.param('slug') });
-    return c.json({ error: e.message || "Failed to kick off chapter-real-images" }, 500);
+    logger.error('chapter-real-images kickoff error', { error: (e as Error).message, slug: c.req.param('slug') });
+    return c.json({ error: (e as Error).message || "Failed to kick off chapter-real-images" }, 500);
   }
 });
 
@@ -1677,12 +1724,12 @@ app.post("/api/guides/:slug/chapter-real-images", async (c) => {
  * @param {string} slug
  * @returns {Promise<void>}
  */
-async function runChapterRealImagesJob(slug) {
+async function runChapterRealImagesJob(slug: string): Promise<void> {
   const t0 = Date.now();
   try {
     const guide = await db.getGuide(slug);
     if (!guide) throw new Error('Guide vanished');
-    const chapters = [...guide.chapters];
+    const chapters: GuideChapter[] = [...(guide.chapters ?? [])];
     const dir = resolve(__dirname, `./public/images/${slug}/real`);
     await mkdirP(dir, { recursive: true });
 
@@ -1705,7 +1752,7 @@ async function runChapterRealImagesJob(slug) {
         await db.updateGuideJob(slug, 'chapter-real-images', { chunksDone: done }).catch(() => {});
         return;
       }
-      const data = await searchRes.json();
+      const data = await searchRes.json() as { results?: Array<{ urls?: { regular?: string } }> };
       const photoUrl = data?.results?.[0]?.urls?.regular;
       if (!photoUrl) {
         done += 1;
@@ -1731,6 +1778,7 @@ async function runChapterRealImagesJob(slug) {
     await pLimit(CHAPTER_IMAGE_CONCURRENCY, tasks);
 
     const fresh = await db.getGuide(slug);
+    if (!fresh) return;
     const update = { ...fresh, chapters };
     await db.upsertGuide(update);
     await db.updateGuideJob(slug, 'chapter-real-images', {
@@ -1741,10 +1789,10 @@ async function runChapterRealImagesJob(slug) {
     });
     logger.info('chapter-real-images done', { slug, added, ms: Date.now() - t0 });
   } catch (err) {
-    logger.error('chapter-real-images failed', { slug, error: err.message });
+    logger.error('chapter-real-images failed', { slug, error: (err as Error).message });
     await db.updateGuideJob(slug, 'chapter-real-images', {
       status: 'failed',
-      error: err.message || 'Unknown error',
+      error: (err as Error).message || 'Unknown error',
       ms: Date.now() - t0,
       finishedAt: Date.now(),
     }).catch(() => {});
@@ -1768,7 +1816,7 @@ async function runChapterRealImagesJob(slug) {
  * @param {string} slug
  * @returns {Promise<void>}
  */
-async function runFullPipeline(slug) {
+async function runFullPipeline(slug: string): Promise<void> {
   const pipeT0 = Date.now();
   await db.updateGuideJob(slug, 'pipeline', { status: 'running', startedAt: Date.now(), error: null });
 
@@ -1801,10 +1849,10 @@ async function runFullPipeline(slug) {
   logger.info('Pipeline complete', { slug, ms: Date.now() - pipeT0 });
 }
 
-function logStageOutcomes(stage, slug, names, settled) {
+function logStageOutcomes(stage: string, slug: string, names: string[], settled: PromiseSettledResult<unknown>[]): void {
   settled.forEach((r, i) => {
     if (r.status === 'rejected') {
-      logger.warn(`Pipeline ${stage} step failed`, { slug, step: names[i], error: r.reason?.message });
+      logger.warn(`Pipeline ${stage} step failed`, { slug, step: names[i], error: (r.reason as Error)?.message });
     }
   });
 }
@@ -1812,7 +1860,7 @@ function logStageOutcomes(stage, slug, names, settled) {
 // Stage helpers — each updates its own jobs row + the guide row. Wrap the
 // raw work in try/catch so one failure doesn't abort the pipeline.
 
-async function runAnalyzeStep(slug) {
+async function runAnalyzeStep(slug: string): Promise<void> {
   const t0 = Date.now();
   try {
     const guide = await db.getGuide(slug);
@@ -1822,11 +1870,12 @@ async function runAnalyzeStep(slug) {
     await db.updateGuideJob(slug, 'analyze', { status: 'running', startedAt: Date.now(), error: null });
     const { author, summary, chapterOutlines } = await analyzeTranscript({
       transcript: guide.transcript,
-      durationSec: guide.duration,
+      durationSec: guide.duration ?? undefined,
       sourceUrl: guide.sourceUrl,
     });
     const fresh = await db.getGuide(slug);
-    const update = { ...fresh };
+    if (!fresh) return;
+    const update: GuideInput = { ...fresh };
     if (summary) update.summary = summary;
     // Fill author only if we don't already have one — never overwrite a real value with null.
     if (!fresh.author && author) update.author = author;
@@ -1843,13 +1892,13 @@ async function runAnalyzeStep(slug) {
       chapters: chapterOutlines.length,
     });
   } catch (err) {
-    logger.error('Pipeline analyze failed', { slug, error: err.message });
-    await db.updateGuideJob(slug, 'analyze', { status: 'failed', error: err.message, ms: Date.now() - t0 }).catch(() => {});
+    logger.error('Pipeline analyze failed', { slug, error: (err as Error).message });
+    await db.updateGuideJob(slug, 'analyze', { status: 'failed', error: (err as Error).message, ms: Date.now() - t0 }).catch(() => {});
     throw err;
   }
 }
 
-async function runThumbnailStep(slug) {
+async function runThumbnailStep(slug: string): Promise<void> {
   const t0 = Date.now();
   try {
     const guide = await db.getGuide(slug);
@@ -1863,16 +1912,17 @@ async function runThumbnailStep(slug) {
     await mkdirP(dir, { recursive: true });
     await writeFile(resolve(dir, `cover.${ext}`), buffer);
     const fresh = await db.getGuide(slug);
+    if (!fresh) return;
     await db.upsertGuide({ ...fresh, thumbnail: `/images/${slug}/cover.${ext}` });
     await db.updateGuideJob(slug, 'thumbnail', { status: 'done', ms: Date.now() - t0, finishedAt: Date.now() });
   } catch (err) {
-    logger.error('Pipeline thumbnail failed', { slug, error: err.message });
-    await db.updateGuideJob(slug, 'thumbnail', { status: 'failed', error: err.message, ms: Date.now() - t0 }).catch(() => {});
+    logger.error('Pipeline thumbnail failed', { slug, error: (err as Error).message });
+    await db.updateGuideJob(slug, 'thumbnail', { status: 'failed', error: (err as Error).message, ms: Date.now() - t0 }).catch(() => {});
     throw err;
   }
 }
 
-async function runTtsJobStaged(slug) {
+async function runTtsJobStaged(slug: string): Promise<void> {
   const guide = await db.getGuide(slug);
   if (!guide?.transcript) return;
   if (guide.audio && guide.timing?.words?.length) return; // already done
@@ -1880,12 +1930,12 @@ async function runTtsJobStaged(slug) {
   await runTtsJob(slug, guide);
   // Re-throw if it failed so Promise.allSettled records it
   const fresh = await db.getGuide(slug);
-  if (fresh.jobs?.tts?.status === 'failed') {
-    throw new Error(fresh.jobs.tts.error || 'tts failed');
+  if (fresh?.jobs?.tts?.status === 'failed') {
+    throw new Error(String(fresh.jobs.tts.error || 'tts failed'));
   }
 }
 
-async function runChapterTimingStep(slug) {
+async function runChapterTimingStep(slug: string): Promise<void> {
   const t0 = Date.now();
   try {
     const guide = await db.getGuide(slug);
@@ -1903,10 +1953,15 @@ async function runChapterTimingStep(slug) {
       return;
     }
     await db.updateGuideJob(slug, 'chapter-timing', { status: 'running', startedAt: Date.now(), error: null });
-    const chapters = attachChapterTimes({ chapterOutlines: guide.chapters, words });
+    const chapterOutlines = guide.chapters.map(ch => ({
+      title: String(ch.title ?? ''),
+      quote: String(ch.quote ?? ''),
+      caption: String(ch.caption ?? ''),
+    }));
+    const chapters = attachChapterTimes({ chapterOutlines, words });
     if (chapters.length) {
       const fresh = await db.getGuide(slug);
-      await db.upsertGuide({ ...fresh, chapters });
+      if (fresh) await db.upsertGuide({ ...fresh, chapters });
     }
     await db.updateGuideJob(slug, 'chapter-timing', {
       status: 'done',
@@ -1916,12 +1971,12 @@ async function runChapterTimingStep(slug) {
       dropped: guide.chapters.length - chapters.length,
     });
   } catch (err) {
-    logger.error('Pipeline chapter-timing failed', { slug, error: err.message });
-    await db.updateGuideJob(slug, 'chapter-timing', { status: 'failed', error: err.message, ms: Date.now() - t0 }).catch(() => {});
+    logger.error('Pipeline chapter-timing failed', { slug, error: (err as Error).message });
+    await db.updateGuideJob(slug, 'chapter-timing', { status: 'failed', error: (err as Error).message, ms: Date.now() - t0 }).catch(() => {});
   }
 }
 
-async function runChapterImagesJobStaged(slug) {
+async function runChapterImagesJobStaged(slug: string): Promise<void> {
   const guide = await db.getGuide(slug);
   if (!guide?.chapters?.length) return;
   const needed = guide.chapters.filter(ch => !ch.image?.generated).length;
@@ -1933,12 +1988,12 @@ async function runChapterImagesJobStaged(slug) {
   await db.updateGuideJob(slug, 'chapter-images', { status: 'running', startedAt: Date.now(), chunksDone: 0, chunksTotal: needed, error: null });
   await runChapterImagesJob(slug);
   const fresh = await db.getGuide(slug);
-  if (fresh.jobs?.['chapter-images']?.status === 'failed') {
-    throw new Error(fresh.jobs['chapter-images'].error || 'chapter-images failed');
+  if (fresh?.jobs?.['chapter-images']?.status === 'failed') {
+    throw new Error(String(fresh.jobs['chapter-images'].error || 'chapter-images failed'));
   }
 }
 
-async function runChapterRealImagesJobStaged(slug) {
+async function runChapterRealImagesJobStaged(slug: string): Promise<void> {
   if (!process.env.UNSPLASH_ACCESS_KEY) return; // skip if no key
   const guide = await db.getGuide(slug);
   if (!guide?.chapters?.length) return;
@@ -1947,8 +2002,8 @@ async function runChapterRealImagesJobStaged(slug) {
   await db.updateGuideJob(slug, 'chapter-real-images', { status: 'running', startedAt: Date.now(), chunksDone: 0, chunksTotal: needed, error: null });
   await runChapterRealImagesJob(slug);
   const fresh = await db.getGuide(slug);
-  if (fresh.jobs?.['chapter-real-images']?.status === 'failed') {
-    throw new Error(fresh.jobs['chapter-real-images'].error || 'chapter-real-images failed');
+  if (fresh?.jobs?.['chapter-real-images']?.status === 'failed') {
+    throw new Error(String(fresh.jobs['chapter-real-images'].error || 'chapter-real-images failed'));
   }
 }
 
@@ -1976,14 +2031,14 @@ app.post("/api/guides", async (c) => {
       title,
       author: typeof body.author === 'string' ? body.author.trim() : null,
       date: typeof body.date === 'string' ? body.date.trim() : null,
-      duration: Number.isFinite(body.duration) ? body.duration : null,
+      duration: Number.isFinite(body.duration) ? (body.duration as number) : null,
       thumbnail: typeof body.thumbnail === 'string' ? body.thumbnail.trim() : null,
       transcript: typeof body.transcript === 'string' ? body.transcript : null,
       sourceUrl: typeof body.sourceUrl === 'string' ? body.sourceUrl.trim() : null,
       // Generated is the only forward mode. Body override still honored for migration / legacy.
       defaultViewMode: body.defaultViewMode === 'real' ? 'real' : 'generated',
-      chapters: Array.isArray(body.chapters) ? body.chapters : [],
-      timing: body.timing && typeof body.timing === 'object' ? body.timing : null,
+      chapters: Array.isArray(body.chapters) ? body.chapters as GuideChapter[] : [],
+      timing: body.timing && typeof body.timing === 'object' ? body.timing as GuideTiming : null,
       audio: typeof body.audio === 'string' ? body.audio.trim() : null,
       visibility: typeof body.visibility === 'string' ? body.visibility : 'public',
     });
@@ -1992,12 +2047,12 @@ app.post("/api/guides", async (c) => {
 
     // Backend orchestrates the rest. Fire-and-forget — FE polls GET /api/guides/:slug.
     runFullPipeline(slug).catch(err => {
-      logger.error('Pipeline crashed', { slug, error: err.message });
+      logger.error('Pipeline crashed', { slug, error: (err as Error).message });
     });
 
     return c.json({ slug }, 201);
   } catch (e) {
-    logger.error('Create guide error', { error: e.message });
+    logger.error('Create guide error', { error: (e as Error).message });
     return c.json({ error: "Failed to create guide" }, 500);
   }
 });
@@ -2034,7 +2089,7 @@ app.post("/api/guides/:slug/audio", async (c) => {
     logger.info('Audio uploaded', { slug, bytes: buf.length });
     return c.json({ audio: audioUrl, bytes: buf.length });
   } catch (e) {
-    logger.error('Audio upload error', { error: e.message, slug: c.req.param('slug') });
+    logger.error('Audio upload error', { error: (e as Error).message, slug: c.req.param('slug') });
     return c.json({ error: "Failed to upload audio" }, 500);
   }
 });
@@ -2046,10 +2101,10 @@ app.post("/api/guides/:slug/audio", async (c) => {
  * Handles SyntaxError from malformed JSON.
  *
  * @async
- * @param {Context} c - Hono context
- * @returns {Promise<Object|null>} Parsed body or null on error
+ * @param c - Hono context
+ * @returns Parsed body or null on error
  */
-async function parseJsonBody(c) {
+async function parseJsonBody<T = Record<string, unknown>>(c: Context<AppEnv>): Promise<T | null> {
   try {
     return await c.req.json();
   } catch (e) {
@@ -2063,7 +2118,7 @@ async function parseJsonBody(c) {
 // ==== AUTH ROUTES ====
 app.post("/api/signup", async (c) => {
   try {
-    const body = await parseJsonBody(c);
+    const body = await parseJsonBody<{ email: string; password: string; name: string }>(c);
     if (!body) {
       return c.json({ error: 'Invalid request body' }, 400);
     }
@@ -2100,11 +2155,14 @@ app.post("/api/signup", async (c) => {
         await db.insertAuth({ email: email, password: hash, userID: insertID });
       } catch (authError) {
         // Rollback: delete the user we just created
-        logger.error('Auth insert failed, rolling back user creation', { error: authError.message });
+        logger.error('Auth insert failed, rolling back user creation', { error: (authError as Error).message });
         try {
-          await db.executeQuery({ query: 'DELETE FROM Users WHERE _id = ?', params: [insertID] });
+          const rollback = await db.deleteUser({ _id: insertID });
+          if (rollback.deletedCount !== 1) {
+            logger.error('Rollback failed - orphaned user record', { userID: insertID });
+          }
         } catch (rollbackError) {
-          logger.error('Rollback failed - orphaned user record', { userID: insertID, error: rollbackError.message });
+          logger.error('Rollback failed - orphaned user record', { userID: insertID, error: (rollbackError as Error).message });
         }
         throw authError;
       }
@@ -2120,21 +2178,21 @@ app.post("/api/signup", async (c) => {
         tokenExpires: tokenExpireTimestamp()
       }, 201);
     } catch (e) {
-      if (e.message?.includes('UNIQUE constraint failed') || e.message?.includes('duplicate key') || e.code === 11000) {
+      if ((e as Error).message?.includes('UNIQUE constraint failed') || (e as Error).message?.includes('duplicate key') || (e as { code?: number }).code === 11000) {
         logger.warn('Signup failed - duplicate account');
         return c.json({ error: "Unable to create account with provided credentials" }, 400);
       }
       throw e;
     }
   } catch (e) {
-    logger.error('Signup error', { error: e.message });
+    logger.error('Signup error', { error: (e as Error).message });
     return c.json({ error: "Server error" }, 500);
   }
 });
 
 app.post("/api/signin", async (c) => {
   try {
-    const body = await parseJsonBody(c);
+    const body = await parseJsonBody<{ email: string; password: string }>(c);
     if (!body) {
       return c.json({ error: 'Invalid request body' }, 400);
     }
@@ -2183,7 +2241,7 @@ app.post("/api/signin", async (c) => {
         await db.updateAuth({ email }, { password: newHash });
         logger.debug('Password hash migrated to scrypt');
       } catch (e) {
-        logger.warn('Password rehash failed', { error: e.message });
+        logger.warn('Password rehash failed', { error: (e as Error).message });
       }
     }
 
@@ -2216,7 +2274,7 @@ app.post("/api/signin", async (c) => {
       tokenExpires: tokenExpireTimestamp()
     });
   } catch (e) {
-    logger.error('Signin error', { error: e.message });
+    logger.error('Signin error', { error: (e as Error).message });
     return c.json({ error: "Server error" }, 500);
   }
 });
@@ -2247,7 +2305,7 @@ app.post("/api/signout", authMiddleware, async (c) => {
     logger.info('Signout success');
     return c.json({ message: "Signed out successfully" });
   } catch (e) {
-    logger.error('Signout error', { error: e.message });
+    logger.error('Signout error', { error: (e as Error).message });
     return c.json({ error: "Server error" }, 500);
   }
 });
@@ -2264,7 +2322,7 @@ app.get("/api/me", authMiddleware, async (c) => {
 app.put("/api/me", authMiddleware, csrfProtection, async (c) => {
   try {
     const userID = c.get('userID');
-    const body = await c.req.json();
+    const body = await c.req.json<Record<string, unknown>>();
     const { name } = body;
 
     // Validation
@@ -2280,7 +2338,7 @@ app.put("/api/me", authMiddleware, csrfProtection, async (c) => {
     if (!user) return c.json({ error: "User not found" }, 404);
 
     // Whitelist approach - only allow specific fields
-    const update = {};
+    const update: UserSetFields = {};
     for (const [key, value] of Object.entries(body)) {
       if (UPDATEABLE_USER_FIELDS.includes(key)) {
         // Sanitize string values to prevent XSS
@@ -2303,7 +2361,7 @@ app.put("/api/me", authMiddleware, csrfProtection, async (c) => {
     const updatedUser = await db.findUser( { _id: userID });
     return c.json(updatedUser);
   } catch (err) {
-    logger.error('Update user error', { error: err.message });
+    logger.error('Update user error', { error: (err as Error).message });
     return c.json({ error: "Failed to update user" }, 500);
   }
 });
@@ -2312,7 +2370,7 @@ app.put("/api/me", authMiddleware, csrfProtection, async (c) => {
 app.post("/api/usage", authMiddleware, async (c) => {
   try {
     const userID = c.get('userID');
-    const body = await c.req.json();
+    const body = await c.req.json<{ operation?: string }>();
     const { operation } = body; // "check" or "track"
 
     if (!operation || !['check', 'track'].includes(operation)) {
@@ -2333,8 +2391,8 @@ app.post("/api/usage", authMiddleware, async (c) => {
         total: -1,
         isSubscriber: true,
         subscription: {
-          status: user.subscription.status,
-          expiresAt: user.subscription.expires ? new Date(user.subscription.expires * 1000).toISOString() : null
+          status: user.subscription!.status,
+          expiresAt: user.subscription!.expires ? new Date(user.subscription!.expires * 1000).toISOString() : null
         }
       });
     }
@@ -2399,7 +2457,7 @@ app.post("/api/usage", authMiddleware, async (c) => {
     });
 
   } catch (error) {
-    logger.error('Usage tracking error', { error: error.message });
+    logger.error('Usage tracking error', { error: (error as Error).message });
     return c.json({ error: "Server error" }, 500);
   }
 });
@@ -2408,7 +2466,7 @@ app.post("/api/usage", authMiddleware, async (c) => {
 app.post("/api/checkout", authMiddleware, csrfProtection, async (c) => {
   try {
     const userID = c.get('userID');
-    const body = await c.req.json();
+    const body = await c.req.json<{ email?: string; lookup_key?: string }>();
     const { email, lookup_key } = body;
 
     if (!email || !lookup_key) return c.json({ error: "Missing email or lookup_key" }, 400);
@@ -2417,7 +2475,7 @@ app.post("/api/checkout", authMiddleware, csrfProtection, async (c) => {
     const user = await db.findUser( { _id: userID });
     if (!user || user.email !== email) return c.json({ error: "Email mismatch" }, 403);
 
-    const prices = await stripe.prices.list({ lookup_keys: [lookup_key], expand: ["data.product"] });
+    const prices = await stripe!.prices.list({ lookup_keys: [lookup_key], expand: ["data.product"] });
 
     if (!prices.data || prices.data.length === 0) {
       return c.json({ error: `No price found for lookup_key: ${lookup_key}` }, 400);
@@ -2426,7 +2484,7 @@ app.post("/api/checkout", authMiddleware, csrfProtection, async (c) => {
     // Use FRONTEND_URL env var or origin header, fallback to localhost for dev
     const origin = process.env.FRONTEND_URL || c.req.header('origin') || `http://localhost:${port}`;
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripe!.checkout.sessions.create({
       customer_email: email,
       mode: "subscription",
       payment_method_types: ["card"],
@@ -2438,7 +2496,7 @@ app.post("/api/checkout", authMiddleware, csrfProtection, async (c) => {
     });
     return c.json({ url: session.url, id: session.id, customerID: session.customer });
   } catch (e) {
-    logger.error('Checkout session error', { error: e.message });
+    logger.error('Checkout session error', { error: (e as Error).message });
     return c.json({ error: "Stripe session failed" }, 500);
   }
 });
@@ -2446,7 +2504,7 @@ app.post("/api/checkout", authMiddleware, csrfProtection, async (c) => {
 app.post("/api/portal", authMiddleware, csrfProtection, async (c) => {
   try {
     const userID = c.get('userID');
-    const body = await c.req.json();
+    const body = await c.req.json<{ customerID?: string }>();
     const { customerID } = body;
 
     if (!customerID) return c.json({ error: "Missing customerID" }, 400);
@@ -2459,13 +2517,13 @@ app.post("/api/portal", authMiddleware, csrfProtection, async (c) => {
 
     // Use FRONTEND_URL env var or origin header, fallback to localhost for dev
     const origin = process.env.FRONTEND_URL || c.req.header('origin') || `http://localhost:${port}`;
-    const portalSession = await stripe.billingPortal.sessions.create({
+    const portalSession = await stripe!.billingPortal.sessions.create({
       customer: customerID,
       return_url: `${origin}/app/payment?portal=return`,
     });
     return c.json({ url: portalSession.url, id: portalSession.id });
   } catch (e) {
-    logger.error('Portal session error', { error: e.message });
+    logger.error('Portal session error', { error: (e as Error).message });
     return c.json({ error: "Stripe portal failed" }, 500);
   }
 });
@@ -2501,7 +2559,7 @@ app.onError((err, c) => {
   const requestId = Math.random().toString(36).substr(2, 9);
 
   logger.error('Unhandled error occurred', {
-    message: err.message,
+    message: (err as Error).message,
     stack: !isProd() ? err.stack : undefined,
     path: c.req.path,
     method: c.req.method,
@@ -2509,7 +2567,7 @@ app.onError((err, c) => {
   });
 
   return c.json({
-    error: !isProd() ? err.message : 'Internal server error',
+    error: !isProd() ? (err as Error).message : 'Internal server error',
     ...(!isProd() && { stack: err.stack })
   }, 500);
 });
@@ -2522,9 +2580,9 @@ app.onError((err, c) => {
  * Reads the NODE_ENV environment variable. Returns true only when
  * NODE_ENV is explicitly set to "production".
  *
- * @returns {boolean} True if NODE_ENV === "production"
+ * @returns True if NODE_ENV === "production"
  */
-function isProd() {
+function isProd(): boolean {
   return process.env.NODE_ENV === 'production';
 }
 
@@ -2535,10 +2593,8 @@ function isProd() {
  * then backend/.env.local for project-specific overrides (wins on conflict).
  * Creates .env from .env.example if it doesn't exist. Only called in
  * non-production mode — Railway injects vars directly in prod.
- *
- * @returns {void}
  */
-function loadLocalENV() {
+function loadLocalENV(): void {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
   const envFilePath = resolve(__dirname, './.env');
@@ -2553,7 +2609,7 @@ function loadLocalENV() {
       const exampleData = readFileSync(envExamplePath, 'utf8');
       writeFileSync(envFilePath, exampleData);
     } catch (exampleErr) {
-      logger.error('Failed to create .env from template', { error: exampleErr.message });
+      logger.error('Failed to create .env from template', { error: (exampleErr as Error).message });
       return;
     }
   }
@@ -2569,10 +2625,9 @@ function loadLocalENV() {
  * Parse a .env file and apply key=value pairs to process.env.
  * Skips blank lines and comments. Handles quoted values and values containing '='.
  * Silently skips if file doesn't exist.
- * @param {string} filePath - Absolute path to the .env file
- * @returns {void}
+ * @param filePath - Absolute path to the .env file
  */
-function loadEnvFile(filePath) {
+function loadEnvFile(filePath: string): void {
   try {
     const data = readFileSync(filePath, 'utf8');
     for (let line of data.split(/\r?\n/)) {
@@ -2604,7 +2659,7 @@ const server = serve({
 
 // Handle graceful shutdown on SIGTERM and SIGINT - NEED THIS FOR PROXY
 if (typeof process !== 'undefined') {
-  const gracefulShutdown = async (signal) => {
+  const gracefulShutdown = async (signal: string) => {
     console.log(`${signal} received. Shutting down gracefully...`);
 
     // Close HTTP server first

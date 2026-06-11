@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { FormEvent, MouseEvent } from 'react';
 import { useNavigate } from 'react-router';
-import GuideProgress from './GuideProgress.jsx';
+import GuideProgress from './GuideProgress';
 import {
   Dialog,
   DialogContent,
@@ -13,9 +14,37 @@ import { Spinner } from '@stevederico/skateboard-ui/shadcn/ui/spinner';
 import Plus from '@stevederico/skateboard-ui/icons/Plus';
 import X from '@stevederico/skateboard-ui/icons/X';
 import Trash2 from '@stevederico/skateboard-ui/icons/Trash2';
-import { toast } from '../toast.jsx';
+import { toast } from '../toast';
+import type { Guide } from '../utils/playerUtils';
 
-function fmtDuration(sec) {
+/** Which source the create form is reading from. */
+type SourceMode = 'url' | 'text';
+
+/** Data collected from a URL fetch or pasted text, used to create a guide. */
+interface SourceData {
+  title: string;
+  author: string;
+  transcript: string;
+  sourceUrl?: string;
+  date?: string;
+  thumbnail?: string;
+  /** Internal: last auto-derived title, so user edits aren't clobbered. */
+  _derivedTitle?: string;
+}
+
+/** The guide a delete confirmation is pending for. */
+interface PendingDelete {
+  slug: string;
+  title: string;
+}
+
+/**
+ * Format a duration in seconds as `h:mm:ss` or `m:ss`.
+ *
+ * @param sec - Duration in seconds.
+ * @returns Formatted duration, or '' for falsy input.
+ */
+function fmtDuration(sec: number | undefined): string {
   if (!sec) return '';
   sec = Math.round(sec);
   const h = Math.floor(sec / 3600);
@@ -28,41 +57,51 @@ function fmtDuration(sec) {
 const THUMB_PREFIX_RX = /^\.\.\//;
 const WHITESPACE_RX = /\s+/;
 
-function resolveThumb(p) {
+/** Resolve a stored thumbnail path (`../x` -> `/x`) for browser use. */
+function resolveThumb(p: string | undefined): string {
   if (!p) return '';
   return p.replace(THUMB_PREFIX_RX, '/');
 }
 
-function initials(name) {
+/** Build up-to-two-letter uppercase initials from a name. */
+function initials(name: string | undefined): string {
   return (name || '?').split(WHITESPACE_RX).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
 }
 
+/**
+ * Library home view: searchable grid of guides plus a create-guide modal that
+ * accepts a URL or pasted text, kicks off the backend pipeline, and shows
+ * progress before opening the player.
+ *
+ * @component
+ * @returns The library view.
+ */
 export default function LibraryView() {
   const navigate = useNavigate();
-  const [guides, setGuides] = useState([]);
+  const [guides, setGuides] = useState<Guide[]>([]);
   const [query, setQuery] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
-  const [sourceMode, setSourceMode] = useState('url'); // 'url' | 'text'
+  const [sourceMode, setSourceMode] = useState<SourceMode>('url');
   const [sourceUrl, setSourceUrl] = useState('');
   const [pastedText, setPastedText] = useState('');
   const [fetching, setFetching] = useState(false);
 
   // Data collected from URL or pasted text
-  const [sourceData, setSourceData] = useState({ title: '', author: '', transcript: '' });
+  const [sourceData, setSourceData] = useState<SourceData>({ title: '', author: '', transcript: '' });
   const [submitting, setSubmitting] = useState(false);
   const [submitLabel, setSubmitLabel] = useState('Create guide');
 
   // After create, the modal flips into "progress" mode showing the GuideProgress stepper
   // so the user can kick off the remaining enrichment jobs (TTS, chapters, images, etc.)
   // before opening the player.
-  const [createdGuide, setCreatedGuide] = useState(null); // full guide payload returned by GET /:slug
+  const [createdGuide, setCreatedGuide] = useState<Guide | null>(null); // full guide payload returned by GET /:slug
 
   // Delete confirmation state — when set, a modal asks the user to confirm.
-  const [pendingDelete, setPendingDelete] = useState(null); // {slug, title} | null
-  const [deletingSlug, setDeletingSlug] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
 
-  const urlInputRef = useRef(null);
-  const textInputRef = useRef(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
+  const textInputRef = useRef<HTMLTextAreaElement>(null);
 
   async function load() {
     const res = await fetch('/api/guides');
@@ -90,7 +129,7 @@ export default function LibraryView() {
     } catch (err) {
       console.error('Delete guide failed', err);
       setGuides(prev);
-      toast.error(err.message || 'Could not delete that guide.');
+      toast.error((err as Error).message || 'Could not delete that guide.');
     } finally {
       setDeletingSlug(null);
     }
@@ -195,7 +234,7 @@ export default function LibraryView() {
   // === New source-first create flow ===
 
   // Reusable fetch that returns data (now calls our backend for reliable extraction)
-  async function fetchFromUrl(url) {
+  async function fetchFromUrl(url: string): Promise<SourceData> {
     const res = await fetch('/api/fetch-url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -218,37 +257,13 @@ export default function LibraryView() {
     };
   }
 
-  // Kept for potential future manual use, but not shown in UI anymore
-  async function handleFetchUrl() {
-    if (!sourceUrl.trim()) return;
-    setFetching(true);
-    try {
-      const data = await fetchFromUrl(sourceUrl);
-      setSourceData(data);
-      setPastedText(data.transcript);
-    } catch (err) {
-      console.error('Fetch URL failed', err);
-      toast.error(err.message || 'Could not fetch the page.');
-    } finally {
-      setFetching(false);
-    }
-  }
-
-  function handleUsePastedText() {
-    if (!pastedText.trim()) return;
-    const firstLine = pastedText.split('\n').find(l => l.trim().length > 12) || 'Untitled Guide';
-    const title = firstLine.trim().slice(0, 140);
-    setSourceData({ title, author: '', transcript: pastedText });
-  }
-
-  async function handleSubmit(e) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const form = e.currentTarget;
 
     setSubmitting(true);
 
     try {
-      let data = { ...sourceData };
+      let data: SourceData = { ...sourceData };
 
       // Auto-fetch for URL mode inside the Create button
       if (sourceMode === 'url' && sourceUrl.trim() && !data.transcript) {
@@ -301,7 +316,7 @@ export default function LibraryView() {
       resetCreateForm();
     } catch (err) {
       console.error('Create guide failed', err);
-      toast.error(err.message || 'Something went wrong');
+      toast.error((err as Error).message || 'Something went wrong');
       setSubmitLabel('Create guide');
     } finally {
       setSubmitting(false);
@@ -352,7 +367,7 @@ export default function LibraryView() {
             const pipe = g.jobs?.pipeline;
             const processing = pipe?.status === 'running';
             const failed = pipe?.status === 'failed';
-            const stepLabels = {
+            const stepLabels: Record<string, string> = {
               analyze: 'Analyzing transcript',
               thumbnail: 'Generating cover',
               tts: 'Synthesizing audio',
@@ -367,7 +382,7 @@ export default function LibraryView() {
               }
             }
             const cardProps = processing
-              ? { onClick: e => e.preventDefault(), tabIndex: -1, 'aria-disabled': true }
+              ? { onClick: (e: MouseEvent) => e.preventDefault(), tabIndex: -1, 'aria-disabled': true }
               : {};
             return (
             <a
@@ -404,7 +419,7 @@ export default function LibraryView() {
                 )}
                 {failed && (
                   <span role="alert" className="absolute left-2.5 right-2.5 bottom-2.5 text-[0.72rem] font-semibold text-center px-2.5 py-1.5 rounded-md backdrop-blur-[6px] bg-red-900/95 text-white">
-                    Failed: {pipe.error || 'unknown error'}
+                    Failed: {pipe?.error || 'unknown error'}
                   </span>
                 )}
                 <button
@@ -469,10 +484,10 @@ export default function LibraryView() {
               <>
               {/* Pure URL or Text flow — nothing else */}
               <div className="flex bg-secondary rounded-full p-[3px] mb-4 border border-border">
-                {[
+                {([
                   { mode: 'url',  label: 'From URL' },
                   { mode: 'text', label: 'Paste Text' },
-                ].map(({ mode, label }) => (
+                ] as { mode: SourceMode; label: string }[]).map(({ mode, label }) => (
                   <button
                     key={mode}
                     type="button"
