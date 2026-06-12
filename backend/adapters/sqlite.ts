@@ -31,6 +31,46 @@ import type {
 } from '../types.ts';
 
 /**
+ * True for a non-null, non-array plain object.
+ *
+ * @param value - Value to test
+ * @returns True if value is a plain object
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Type guard for a chapters_json column (an array of chapter objects).
+ *
+ * @param value - Parsed JSON value
+ * @returns True if value is a GuideChapter[]
+ */
+function isGuideChapterArray(value: unknown): value is GuideChapter[] {
+  return Array.isArray(value) && value.every(isPlainObject);
+}
+
+/**
+ * Type guard for a jobs_json column (a map of job-step records).
+ *
+ * @param value - Parsed JSON value
+ * @returns True if value is a GuideJobs map
+ */
+function isGuideJobs(value: unknown): value is GuideJobs {
+  return isPlainObject(value) && Object.values(value).every(isPlainObject);
+}
+
+/**
+ * Type guard for a timing_json column (a word-timing payload object or null).
+ *
+ * @param value - Parsed JSON value
+ * @returns True if value is a GuideTiming or null
+ */
+function isGuideTimingOrNull(value: unknown): value is GuideTiming | null {
+  return value === null || isPlainObject(value);
+}
+
+/**
  * Raw Users table row as returned by SELECT *, with flat subscription_* and
  * usage_* columns. findUser mutates this shape in place — nesting the flat
  * columns into `subscription`/`usage` objects and deleting them — so the flat
@@ -489,13 +529,22 @@ export class SQLiteProvider implements DatabaseProvider<Database> {
   /**
    * Parse a JSON column safely, returning the fallback on null/invalid input.
    *
-   * @param {string|null} raw - JSON text from a SQLite column
-   * @param {*} fallback - Value to return when raw is null or unparseable
-   * @returns {*} Parsed value or fallback
+   * The parsed value is validated with the supplied runtime type guard; if the
+   * column is null, unparseable, or fails the guard, the fallback is returned.
+   *
+   * @param raw - JSON text from a SQLite column
+   * @param guard - Runtime type guard proving the parsed value is a T
+   * @param fallback - Value to return when raw is null, unparseable, or invalid
+   * @returns Parsed value or fallback
    */
-  parseJsonColumn<T>(raw: string | null, fallback: T): T {
+  parseJsonColumn<T>(raw: string | null, guard: (value: unknown) => value is T, fallback: T): T {
     if (raw == null) return fallback;
-    try { return JSON.parse(raw) as T; } catch { return fallback; }
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return guard(parsed) ? parsed : fallback;
+    } catch {
+      return fallback;
+    }
   }
 
   /**
@@ -514,7 +563,7 @@ export class SQLiteProvider implements DatabaseProvider<Database> {
     const includeTiming = opts.includeTiming !== false;
     const includeChapters = opts.includeChapters !== false;
 
-    const chapters = this.parseJsonColumn<GuideChapter[]>(row.chapters_json, []);
+    const chapters = this.parseJsonColumn(row.chapters_json, isGuideChapterArray, []);
     const out: Guide = {
       slug: row.slug,
       title: row.title,
@@ -528,7 +577,7 @@ export class SQLiteProvider implements DatabaseProvider<Database> {
       visibility: row.visibility,
       summary: row.summary || null,
       sourceUrl: row.source_url || null,
-      jobs: this.parseJsonColumn<GuideJobs>(row.jobs_json, {}),
+      jobs: this.parseJsonColumn(row.jobs_json, isGuideJobs, {}),
       chapterCount: Array.isArray(chapters) ? chapters.length : 0,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -536,7 +585,7 @@ export class SQLiteProvider implements DatabaseProvider<Database> {
     if (includeChapters) out.chapters = chapters;
     if (includeTranscript) out.transcript = row.transcript || '';
     if (includeTiming) {
-      const timing = this.parseJsonColumn<GuideTiming | null>(row.timing_json ?? null, null);
+      const timing = this.parseJsonColumn(row.timing_json ?? null, isGuideTimingOrNull, null);
       if (timing) out.timing = timing;
     }
     return out;
@@ -565,7 +614,7 @@ export class SQLiteProvider implements DatabaseProvider<Database> {
     sql += ` ORDER BY created_at DESC`;
     const rows = db.prepare(sql).all(...params) as GuideRow[];
     return rows.map((r: GuideRow): GuideSummary => {
-      const chapters = this.parseJsonColumn<GuideChapter[]>(r.chapters_json, []);
+      const chapters = this.parseJsonColumn(r.chapters_json, isGuideChapterArray, []);
       return {
         slug: r.slug,
         title: r.title,
@@ -575,7 +624,7 @@ export class SQLiteProvider implements DatabaseProvider<Database> {
         thumbnail: r.thumbnail,
         chapterCount: Array.isArray(chapters) ? chapters.length : 0,
         visibility: r.visibility,
-        jobs: this.parseJsonColumn<GuideJobs>(r.jobs_json, {}),
+        jobs: this.parseJsonColumn(r.jobs_json, isGuideJobs, {}),
         createdAt: r.created_at,
         updatedAt: r.updated_at,
       };
@@ -707,7 +756,7 @@ export class SQLiteProvider implements DatabaseProvider<Database> {
     try {
       const row = db.prepare(`SELECT jobs_json FROM Guides WHERE slug = ?`).get(slug) as { jobs_json: string | null } | undefined;
       if (!row) throw new Error(`Guide not found: ${slug}`);
-      const jobs = this.parseJsonColumn<GuideJobs>(row.jobs_json, {});
+      const jobs = this.parseJsonColumn(row.jobs_json, isGuideJobs, {});
       jobs[step] = { ...(jobs[step] || {}), ...jobState };
       db.prepare(`UPDATE Guides SET jobs_json = ?, updated_at = ? WHERE slug = ?`)
         .run(JSON.stringify(jobs), Date.now(), slug);
