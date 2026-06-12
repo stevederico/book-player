@@ -489,13 +489,41 @@ export class SQLiteProvider implements DatabaseProvider<Database> {
   /**
    * Parse a JSON column safely, returning the fallback on null/invalid input.
    *
-   * @param {string|null} raw - JSON text from a SQLite column
-   * @param {*} fallback - Value to return when raw is null or unparseable
-   * @returns {*} Parsed value or fallback
+   * Parses to `unknown` and narrows with `guard` so the result is proven to be
+   * `T` rather than cast. When no explicit guard is supplied, the parsed value
+   * is validated against the runtime *kind* of `fallback` (array vs non-null
+   * object) — every column stored by this adapter is one of those shapes, so
+   * valid data round-trips unchanged and malformed JSON yields the fallback.
+   *
+   * @param raw - JSON text from a SQLite column
+   * @param fallback - Value to return when raw is null or fails validation
+   * @param guard - Optional runtime guard narrowing the parsed value to T
+   * @returns Parsed value (validated as T) or fallback
    */
-  parseJsonColumn<T>(raw: string | null, fallback: T): T {
+  parseJsonColumn<T>(raw: string | null, fallback: T, guard?: (value: unknown) => value is T): T {
     if (raw == null) return fallback;
-    try { return JSON.parse(raw) as T; } catch { return fallback; }
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); } catch { return fallback; }
+    const isValid = guard ?? this.matchesFallbackKind(fallback);
+    return isValid(parsed) ? parsed : fallback;
+  }
+
+  /**
+   * Build a structural guard that accepts values sharing `fallback`'s runtime
+   * kind: an array fallback admits arrays, any other (non-null) object fallback
+   * admits non-null objects, and a `null` fallback admits objects or null.
+   *
+   * @param fallback - Reference value whose runtime kind defines acceptance
+   * @returns A type guard for T derived from fallback's shape
+   */
+  private matchesFallbackKind<T>(fallback: T): (value: unknown) => value is T {
+    const fallbackIsArray = Array.isArray(fallback);
+    const fallbackIsNull = fallback === null;
+    return (value: unknown): value is T => {
+      if (fallbackIsArray) return Array.isArray(value);
+      if (fallbackIsNull) return value === null || (typeof value === 'object' && !Array.isArray(value));
+      return typeof value === 'object' && value !== null && !Array.isArray(value);
+    };
   }
 
   /**
